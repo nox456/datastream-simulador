@@ -197,7 +197,8 @@ tiempo real de los ventiladores (gradiente), la energía y `λ*` (Lagrange), y l
 **IA y PDF** (`reportes/`): el reporte incluye indicadores, la tabla de la recursión de DP, la última mochila
 resuelta, los puntos estacionarios, gráficas de matplotlib, la bitácora y un **análisis ejecutivo generado con la API de
 Claude** (`claude-opus-5-5` a través del SDK oficial `anthropic`). Si no hay clave o la API falla, se usa un análisis
-local basado en reglas.
+local basado en reglas. En [`docs/reporte_ejemplo.pdf`](docs/reporte_ejemplo.pdf) hay un ejemplo generado con los
+datos por defecto.
 
 ## Datos de configuración
 
