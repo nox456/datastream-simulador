@@ -1,0 +1,8 @@
+simpy>=4.1
+pygame>=2.5
+sympy>=1.12
+numpy>=1.26
+matplotlib>=3.8
+reportlab>=4.0
+anthropic>=1.14
+pytest>=8.0
