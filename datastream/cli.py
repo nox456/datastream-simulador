@@ -66,7 +66,7 @@ def ejecutar_simulacion(config: Configuracion, sin_gui: bool, velocidad: float) 
     m = simulador.metricas
     print(f"\n  generadas {m.generadas} · procesadas {m.procesadas} · descartadas {m.descartadas} · "
           f"espera media {m.espera_promedio:.2f} s · cambios de ruta {m.cambios_ruta}")
-    print("Generando reporte PDF (análisis con IA si hay ANTHROPIC_API_KEY)...")
+    print("Generando reporte PDF (análisis con IA si hay DEEPSEEK_API_KEY)...")
     resultado = generar_reporte(construir_resumen(simulador))
     print(f"Reporte guardado en: {resultado.ruta}  (análisis: {resultado.fuente_analisis})")
     return 0

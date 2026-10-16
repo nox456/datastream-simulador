@@ -5,7 +5,7 @@ Proyecto de **Métodos Cuantitativos** (Universidad José Antonio Páez · Escue
 Simulador visual del tráfico de red y de la asignación de recursos de un centro de datos. Usa **SimPy** para la
 simulación de eventos discretos, **Pygame** para el dashboard en tiempo real, y modelos de **programación dinámica**
 y **optimización no lineal** para tomar decisiones. Al final genera un **reporte PDF** con un análisis escrito por la
-**API de Claude**.
+**API de DeepSeek**.
 
 ![Dashboard](docs/dashboard.png)
 
@@ -37,7 +37,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-**Análisis con IA (opcional):** copie `.env.example` como `.env` y coloque su `ANTHROPIC_API_KEY`. Sin clave, el
+**Análisis con IA (opcional):** copie `.env.example` como `.env` y coloque su `DEEPSEEK_API_KEY`. Sin clave, el
 reporte PDF se genera igual, con un análisis basado en reglas.
 
 ## Uso
@@ -95,7 +95,7 @@ datastream/
     metricas.py               indicadores y bitácora
     resumen.py                datos planos para el reporte
   visualizacion/            dashboard Pygame (topología, gráficos, indicadores)
-  reportes/                 análisis con IA (Claude), gráficas matplotlib y PDF (reportlab)
+  reportes/                 análisis con IA (DeepSeek), gráficas matplotlib y PDF (reportlab)
   configuracion.py          carga y validación del JSON
   consola.py / cli.py       demos por consola, subcomandos y menú interactivo
 tests/                      pruebas unitarias y de integración (pytest)
@@ -196,7 +196,7 @@ tiempo real de los ventiladores (gradiente), la energía y `λ*` (Lagrange), y l
 
 **IA y PDF** (`reportes/`): el reporte incluye indicadores, la tabla de la recursión de DP, la última mochila
 resuelta, los puntos estacionarios, gráficas de matplotlib, la bitácora y un **análisis ejecutivo generado con la API de
-Claude** (`claude-opus-5-5` a través del SDK oficial `anthropic`). Si no hay clave o la API falla, se usa un análisis
+DeepSeek** (`deepseek-chat` a través del SDK oficial `openai`, compatible con la API de DeepSeek). Si no hay clave o la API falla, se usa un análisis
 local basado en reglas. En [`docs/reporte_ejemplo.pdf`](docs/reporte_ejemplo.pdf) hay un ejemplo generado con los
 datos por defecto.
 

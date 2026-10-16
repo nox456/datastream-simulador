@@ -1,9 +1,10 @@
-"""Análisis de los resultados con IA (API de Claude) y alternativa local.
+"""Análisis de los resultados con IA (API de DeepSeek) y alternativa local.
 
-Si existe la variable de entorno ANTHROPIC_API_KEY (puede definirse en un
-archivo .env en la raíz del proyecto) se consulta la API de Claude; si no, o si
-la llamada falla, se genera un análisis con reglas locales para que el reporte
-PDF siempre pueda producirse.
+Si existe la variable de entorno DEEPSEEK_API_KEY (puede definirse en un
+archivo .env en la raíz del proyecto) se consulta la API de DeepSeek mediante el
+SDK de OpenAI (la API de DeepSeek es compatible); si no, o si la llamada falla,
+se genera un análisis con reglas locales para que el reporte PDF siempre pueda
+producirse.
 """
 
 from __future__ import annotations
@@ -12,7 +13,8 @@ import json
 import os
 from dataclasses import dataclass
 
-MODELO_POR_DEFECTO = "claude-opus-5-5"
+MODELO_POR_DEFECTO = "deepseek-chat"
+URL_BASE_POR_DEFECTO = "https://api.deepseek.com"
 
 INSTRUCCIONES_SISTEMA = (
     "Eres un ingeniero senior de infraestructura cloud especializado en redes de centros de datos, "
@@ -44,37 +46,39 @@ def _resumen_para_ia(resumen: dict) -> str:
     return json.dumps(datos, ensure_ascii=False, indent=1, default=str)
 
 
-class AnalistaClaude:
-    """Consulta la API de Claude con el SDK oficial de Anthropic."""
+class AnalistaDeepSeek:
+    """Consulta la API de DeepSeek con el SDK oficial de OpenAI."""
 
     def __init__(self, modelo: str | None = None):
-        import anthropic  # importación diferida: solo se necesita si hay clave
+        from openai import OpenAI  # importación diferida: solo se necesita si hay clave
 
-        self._anthropic = anthropic
         self.modelo = modelo or os.environ.get("DATASTREAM_MODELO_IA", MODELO_POR_DEFECTO)
-        self.cliente = anthropic.Anthropic(timeout=180.0, max_retries=2)
+        self.cliente = OpenAI(
+            api_key=os.environ["DEEPSEEK_API_KEY"],
+            base_url=os.environ.get("DEEPSEEK_BASE_URL", URL_BASE_POR_DEFECTO),
+            timeout=180.0,
+            max_retries=2,
+        )
 
     def analizar(self, resumen: dict) -> AnalisisTexto:
-        respuesta = self.cliente.beta.messages.create(
+        respuesta = self.cliente.chat.completions.create(
             model=self.modelo,
-            max_tokens=16000,
-            # Si los filtros de seguridad rechazan la solicitud, la API reintenta con
-            # el modelo de respaldo recomendado en lugar de devolver el rechazo.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            output_config={"effort": "medium"},
-            system=INSTRUCCIONES_SISTEMA,
+            max_tokens=4000,
             messages=[
+                {"role": "system", "content": INSTRUCCIONES_SISTEMA},
                 {
                     "role": "user",
                     "content": "Resumen de la simulación en formato JSON:\n"
                     f"{_resumen_para_ia(resumen)}\n\n{FORMATO_RESPUESTA}",
-                }
+                },
             ],
         )
-        if respuesta.stop_reason == "refusal":
+        if not respuesta.choices:
+            raise RuntimeError("la API devolvió una respuesta vacía")
+        eleccion = respuesta.choices[0]
+        if eleccion.finish_reason == "content_filter":
             raise RuntimeError("la API rechazó generar el análisis")
-        texto = "".join(bloque.text for bloque in respuesta.content if bloque.type == "text").strip()
+        texto = (eleccion.message.content or "").strip()
         if not texto:
             raise RuntimeError("la API devolvió una respuesta vacía")
         return AnalisisTexto(texto, f"IA · {respuesta.model}")
@@ -148,22 +152,22 @@ class AnalistaLocal:
 
 
 def analizar_resultados(resumen: dict) -> AnalisisTexto:
-    """Intenta usar Claude; si no es posible, recurre al análisis local."""
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        return AnalistaLocal().analizar(resumen, "no se encontró ANTHROPIC_API_KEY")
+    """Intenta usar DeepSeek; si no es posible, recurre al análisis local."""
+    if not os.environ.get("DEEPSEEK_API_KEY"):
+        return AnalistaLocal().analizar(resumen, "no se encontró DEEPSEEK_API_KEY")
     try:
-        import anthropic
+        import openai
     except ImportError:
-        return AnalistaLocal().analizar(resumen, "el paquete 'anthropic' no está instalado")
+        return AnalistaLocal().analizar(resumen, "el paquete 'openai' no está instalado")
     try:
-        return AnalistaClaude().analizar(resumen)
-    except anthropic.AuthenticationError:
-        motivo = "la API key de Anthropic no es válida"
-    except anthropic.RateLimitError:
+        return AnalistaDeepSeek().analizar(resumen)
+    except openai.AuthenticationError:
+        motivo = "la API key de DeepSeek no es válida"
+    except openai.RateLimitError:
         motivo = "se alcanzó el límite de solicitudes de la API"
-    except anthropic.APIStatusError as error:
+    except openai.APIStatusError as error:
         motivo = f"error {error.status_code} de la API"
-    except anthropic.APIConnectionError:
+    except openai.APIConnectionError:
         motivo = "no hay conexión con la API"
     except RuntimeError as error:
         motivo = str(error)
