@@ -146,3 +146,12 @@ def test_cluster_inalcanzable_se_informa_claramente():
     assert sim.cambios_ruta[-1].motivo == "clúster inalcanzable"
     ultimo = [e for e in sim.metricas.eventos if e.tipo == "ruta"][-1].mensaje
     assert "inalcanzable" in ultimo and "sin ruta (" not in ultimo
+
+
+def test_texto_ia_conserva_negritas_al_inicio_de_linea():
+    from datastream.reportes.generador_pdf import GeneradorReportePDF
+
+    parrafos = GeneradorReportePDF()._texto_ia("## Título\n**Nota:** texto\n- viñeta **x**\n* otra viñeta")
+    textos = [p.text for p in parrafos]
+    assert textos == ["Título", "<b>Nota:</b> texto", "viñeta <b>x</b>", "otra viñeta"]
+    assert all("*" not in t for t in textos)

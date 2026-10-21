@@ -91,10 +91,12 @@ class GeneradorReportePDF:
             linea = linea.strip()
             if not linea:
                 continue
-            contenido = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escape(linea.lstrip("#-*• ").strip()))
+            # Solo se quita el marcador de título o de viñeta; un "**" inicial es negrita y se conserva.
+            texto_linea = re.sub(r"^(#+\s*|[-*•]\s+)", "", linea)
+            contenido = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escape(texto_linea))
             if linea.startswith("#"):
-                elementos.append(self._p(contenido, "h2"))
-            elif linea.startswith(("- ", "* ", "• ")):
+                elementos.append(self._p(re.sub(r"</?b>", "", contenido), "h2"))
+            elif re.match(r"^[-*•]\s+", linea):
                 elementos.append(Paragraph(contenido, self.estilos["vineta"], bulletText="•"))
             else:
                 elementos.append(self._p(contenido))
