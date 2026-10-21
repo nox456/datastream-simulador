@@ -37,6 +37,7 @@ from .metricas import Metricas, Muestra
 TASA_MINIMA, TASA_MAXIMA = 0.5, 20.0  # límites para el ajuste en vivo de λ
 UMBRAL_CAMBIO_RUTA = 0.08  # la nueva ruta debe ser 8 % más rápida para reemplazar a la actual
 HISTERESIS_TERMICA = 5.0  # °C bajo el umbral para salir de la emergencia (evita oscilar)
+MAX_ARTICULOS_ILUSTRATIVOS = 15  # tamaño máximo de la mochila que se muestra en el reporte
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ class SimuladorCentroDatos:
         self.cambios_ruta: list[CambioRuta] = []
         self.resultado_rutas: ResultadoRutas | None = None
         self.ultima_mochila: DecisionMochila | None = None
+        self.mochila_destacada: DecisionMochila | None = None  # instancia ilustrativa para el reporte
         self.ultimo_gradiente: ResultadoGradiente | None = None
         self.ultimo_lagrange: ResultadoLagrange | None = None
         self.ultimos_coeficientes: tuple[float, ...] = ()
@@ -283,6 +285,8 @@ class SimuladorCentroDatos:
                 resultado.valor_total,
                 resultado.peso_total,
             )
+            if self._es_mas_ilustrativa(self.ultima_mochila, self.mochila_destacada):
+                self.mochila_destacada = self.ultima_mochila
             elegidos = set(resultado.seleccionados)
             ruta = self._ruta_a(servidor)
             for indice in resultado.seleccionados:
@@ -291,6 +295,26 @@ class SimuladorCentroDatos:
                 self.tareas_en_transito += 1
                 self.env.process(self._transmitir(tarea, servidor, ruta))
             self.cola = [t for i, t in enumerate(self.cola) if i not in elegidos]
+
+    @staticmethod
+    def _es_mas_ilustrativa(nueva: DecisionMochila, actual: DecisionMochila | None) -> bool:
+        """Elige la instancia de la mochila que mejor muestra el modelo en el reporte.
+
+        Se prefieren las instancias (de hasta 15 tareas, para que la tabla quepa) en las que
+        el modelo realmente decide: varias tareas caben en la capacidad libre pero no todas
+        se pueden tomar a la vez. A igualdad, la que elige más tareas y tiene más candidatas.
+        """
+        if len(nueva.articulos) > MAX_ARTICULOS_ILUSTRATIVOS:
+            return actual is None
+        if actual is None or len(actual.articulos) > MAX_ARTICULOS_ILUSTRATIVOS:
+            return True
+
+        def puntaje(d: DecisionMochila) -> tuple[bool, int, int]:
+            caben = sum(1 for a in d.articulos if a.peso <= d.capacidad)
+            decide = len(d.seleccionados) >= 2 and len(d.seleccionados) < caben
+            return decide, len(d.seleccionados), caben
+
+        return puntaje(nueva) > puntaje(actual)
 
     def _ruta_a(self, servidor: Servidor) -> tuple[str, ...] | None:
         """Ruta en uso hacia el switch del clúster más el salto final al servidor."""

@@ -52,14 +52,14 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
     for cambio in sim.cambios_ruta:
         motivos[cambio.motivo] = motivos.get(cambio.motivo, 0) + 1
 
-    decision = sim.ultima_mochila
+    decision = sim.mochila_destacada or sim.ultima_mochila
     mochila = {
         "ejecuciones": m.ejecuciones_mochila,
         "utilizacion_promedio": m.utilizacion_mochila_promedio,
-        "ultima": None,
+        "destacada": None,
     }
     if decision:
-        mochila["ultima"] = {
+        mochila["destacada"] = {
             "t": decision.t,
             "servidor": decision.servidor,
             "capacidad": decision.capacidad,
@@ -79,7 +79,6 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
     hessiano = sim.asignador.hessiano_orlado(lagrange, sim.ultimos_coeficientes)
     verificacion["menores_hessiano_orlado"] = hessiano["menores"]
     verificacion["es_maximo"] = hessiano["es_maximo"]
-
 
     return {
         "generado": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

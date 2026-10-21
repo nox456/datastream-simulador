@@ -206,3 +206,11 @@ def test_resumen_distingue_ruta_optima_y_ruta_en_uso(simulador):
         if fila["latencia_optima"] is not None and fila["latencia"] is not None:
             # la ruta en uso nunca es más de un 8 % peor que la óptima de la DP
             assert fila["latencia"] <= fila["latencia_optima"] * (1 + resumen["rutas"]["umbral_cambio_ruta"]) + 1e-9
+
+
+def test_resumen_muestra_una_mochila_representativa(simulador):
+    destacada = construir_resumen(simulador)["mochila"]["destacada"]
+    assert destacada and 1 < destacada["total_articulos"] <= 15
+    elegidas = [a for a in destacada["articulos"] if a["elegida"]]
+    caben = [a for a in destacada["articulos"] if a["peso"] <= destacada["capacidad"]]
+    assert 2 <= len(elegidas) < len(caben)  # el modelo realmente tuvo que decidir

@@ -194,15 +194,15 @@ class GeneradorReportePDF:
             "f<sub>i</sub>(w) = max{ f<sub>i-1</sub>(w), v<sub>i</sub> + f<sub>i-1</sub>(w - w<sub>i</sub>) }; "
             f"se resolvió {mochila['ejecuciones']} veces con una utilización media de la capacidad libre del "
             f"{mochila['utilizacion_promedio']:.1%}."))
-        ultima = mochila["ultima"]
-        if ultima:
+        destacada = mochila["destacada"]
+        if destacada:
             e.append(self._p(
-                f"Última decisión (t = {ultima['t']:.1f} s) en {ultima['servidor']}: capacidad libre "
-                f"{ultima['capacidad']}, valor óptimo {ultima['valor_total']:.2f}, peso usado {ultima['peso_total']} "
-                f"(se muestran {len(ultima['articulos'])} de {ultima['total_articulos']} tareas en cola)."))
+                f"Ejemplo representativo (t = {destacada['t']:.1f} s) en {destacada['servidor']}: capacidad libre "
+                f"W = {destacada['capacidad']}, {destacada['total_articulos']} tareas en cola, valor óptimo "
+                f"{destacada['valor_total']:.2f} con peso usado {destacada['peso_total']}/{destacada['capacidad']}."))
             e.append(self._tabla(
-                ["Tarea", "Peso (CPU)", "Valor", "¿Elegida?"],
-                [[a["tarea"], a["peso"], _f(a["valor"]), "Sí" if a["elegida"] else "No"] for a in ultima["articulos"]],
+                ["Tarea", "Peso w_i (CPU)", "Valor v_i", "m_i"],
+                [[a["tarea"], a["peso"], _f(a["valor"]), 1 if a["elegida"] else 0] for a in destacada["articulos"]],
                 [3.5 * cm, 3 * cm, 3 * cm, 3 * cm]))
 
         # 3. Módulo 2
