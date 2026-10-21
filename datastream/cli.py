@@ -260,6 +260,10 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
                 continue
         except ErrorConfiguracion as error:
             print(f"  ✗ {error}")
+        except (KeyboardInterrupt, EOFError):
+            raise  # Ctrl+C sale del programa (lo maneja main)
+        except Exception as error:  # un fallo inesperado no debe cerrar el menú
+            print(f"  ✗ Ocurrió un error inesperado: {type(error).__name__}: {error}")
         input("\nPresione Enter para volver al menú...")
 
 
