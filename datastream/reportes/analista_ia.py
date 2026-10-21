@@ -78,6 +78,8 @@ class AnalistaDeepSeek:
         eleccion = respuesta.choices[0]
         if eleccion.finish_reason == "content_filter":
             raise RuntimeError("la API rechazó generar el análisis")
+        if eleccion.finish_reason == "length":
+            raise RuntimeError("la respuesta de la IA quedó incompleta (límite de tokens)")
         texto = (eleccion.message.content or "").strip()
         if not texto:
             raise RuntimeError("la API devolvió una respuesta vacía")
@@ -169,6 +171,8 @@ def analizar_resultados(resumen: dict) -> AnalisisTexto:
         motivo = f"error {error.status_code} de la API"
     except openai.APIConnectionError:
         motivo = "no hay conexión con la API"
+    except openai.APIError as error:  # cualquier otro error del SDK: el reporte se genera igual
+        motivo = f"error de la API: {error}"
     except RuntimeError as error:
         motivo = str(error)
     return AnalistaLocal().analizar(resumen, motivo)

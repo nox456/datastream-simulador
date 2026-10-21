@@ -155,3 +155,38 @@ def test_texto_ia_conserva_negritas_al_inicio_de_linea():
     textos = [p.text for p in parrafos]
     assert textos == ["Título", "<b>Nota:</b> texto", "viñeta <b>x</b>", "otra viñeta"]
     assert all("*" not in t for t in textos)
+
+
+def test_error_generico_de_la_api_usa_el_analisis_local(simulador, monkeypatch):
+    import httpx
+    import openai
+
+    from datastream.reportes import analista_ia
+
+    def falla(self, resumen):
+        raise openai.APIError("respuesta inesperada", request=httpx.Request("POST", "https://api.deepseek.com"), body=None)
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-prueba")
+    monkeypatch.setattr(analista_ia.AnalistaDeepSeek, "analizar", falla)
+    resultado = analista_ia.analizar_resultados(construir_resumen(simulador))
+    assert resultado.fuente == "reglas locales" and "error de la API" in resultado.texto
+
+
+def test_respuesta_cortada_de_la_ia_usa_el_analisis_local(simulador, monkeypatch):
+    from types import SimpleNamespace
+
+    from datastream.reportes import analista_ia
+
+    cortada = SimpleNamespace(
+        model="deepseek-chat",
+        choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="## Diagnóstico gen"))],
+    )
+    cliente = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **_: cortada)))
+
+    def iniciar(self, modelo=None):
+        self.modelo, self.cliente = "deepseek-chat", cliente
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-prueba")
+    monkeypatch.setattr(analista_ia.AnalistaDeepSeek, "__init__", iniciar)
+    resultado = analista_ia.analizar_resultados(construir_resumen(simulador))
+    assert resultado.fuente == "reglas locales" and "incompleta" in resultado.texto
