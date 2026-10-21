@@ -135,3 +135,14 @@ def test_paquete_se_pierde_si_su_destino_cae_durante_el_viaje():
     sim.avanzar(paquete.inicio + paquete.duracion - sim.ahora + 1e-6)
     assert tarea.reintentos >= 1 and sim.metricas.retransmitidas > retransmitidas
     assert not any(p.tarea is tarea and p.origen == nodo.id for p in sim.paquetes)  # no siguió desde el nodo caído
+
+
+def test_cluster_inalcanzable_se_informa_claramente():
+    sim = SimuladorCentroDatos(cargar_configuracion().con_cambios(duracion=60))
+    sim.avanzar(2)
+    switch = sim.topologia.nodos[sim.clusters[0].switch]
+    sim._fallar(switch, manual=True)
+    assert sim.ruta_de_cluster(0) is None
+    assert sim.cambios_ruta[-1].motivo == "clúster inalcanzable"
+    ultimo = [e for e in sim.metricas.eventos if e.tipo == "ruta"][-1].mensaje
+    assert "inalcanzable" in ultimo and "sin ruta (" not in ultimo

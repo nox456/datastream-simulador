@@ -411,18 +411,20 @@ class SimuladorCentroDatos:
             self.latencias_actuales[cluster.nombre] = costo
             if not registrar_cambios or nueva == anterior:
                 continue
-            if anterior and any(not self.topologia.nodos[n].activo for n in anterior):
-                motivo = "falla de nodo"
+            if nueva is None:
+                motivo = "clúster inalcanzable"
             elif anterior is None:
                 motivo = "ruta restablecida"
-            elif nueva is None:
-                motivo = "clúster inalcanzable"
+            elif any(not self.topologia.nodos[n].activo for n in anterior):
+                motivo = "falla de nodo"
             else:
                 motivo = "congestión"
             self.cambios_ruta.append(CambioRuta(self.env.now, cluster.nombre, anterior, nueva, motivo, costo))
             self.metricas.cambios_ruta += 1
-            texto = " > ".join(nueva) if nueva else "sin ruta"
-            self._registrar("ruta", f"{cluster.nombre}: nueva ruta {texto} ({motivo})")
+            if nueva is None:
+                self._registrar("ruta", f"{cluster.nombre}: sin ruta disponible, clúster inalcanzable")
+            else:
+                self._registrar("ruta", f"{cluster.nombre}: nueva ruta {' > '.join(nueva)} ({motivo})")
 
     @staticmethod
     def _costo_ruta(ruta: tuple[str, ...] | None, arcos: dict[tuple[str, str], float]) -> float:
