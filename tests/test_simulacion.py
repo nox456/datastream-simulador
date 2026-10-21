@@ -120,3 +120,18 @@ def test_resumen_serializable(simulador):
     resumen = construir_resumen(simulador)
     texto = json.dumps({k: v for k, v in resumen.items() if k != "series"}, default=str)
     assert "indicadores" in texto and resumen["rutas"]["tabla"]
+
+
+def test_paquete_se_pierde_si_su_destino_cae_durante_el_viaje():
+    sim = SimuladorCentroDatos(cargar_configuracion().con_cambios(duracion=120))
+    paquete = None
+    while paquete is None and not sim.terminado:
+        sim.avanzar(0.25)
+        paquete = next((p for p in sim.paquetes if p.destino in {n.id for n in sim.topologia.routers()}), None)
+    assert paquete is not None
+    nodo, tarea = sim.topologia.nodos[paquete.destino], paquete.tarea
+    retransmitidas = sim.metricas.retransmitidas
+    sim._fallar(nodo, manual=True)
+    sim.avanzar(paquete.inicio + paquete.duracion - sim.ahora + 1e-6)
+    assert tarea.reintentos >= 1 and sim.metricas.retransmitidas > retransmitidas
+    assert not any(p.tarea is tarea and p.origen == nodo.id for p in sim.paquetes)  # no siguió desde el nodo caído

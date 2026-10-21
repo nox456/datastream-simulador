@@ -298,7 +298,8 @@ class SimuladorCentroDatos:
         """Recorre la ruta enlace por enlace; si un nodo cae, el paquete se pierde."""
         factor = self.config.simulacion.factor_congestion
         for origen, destino in zip(ruta, ruta[1:]):
-            if not self.topologia.nodos[destino].activo:
+            siguiente = self.topologia.nodos[destino]
+            if not siguiente.activo:  # el siguiente salto ya estaba caído
                 self._perder_paquete(tarea, servidor)
                 return
             enlace = self.topologia.enlace(origen, destino)
@@ -310,10 +311,10 @@ class SimuladorCentroDatos:
             yield self.env.timeout(duracion)
             self.paquetes.remove(paquete)
             enlace.en_transito -= 1
+            if not siguiente.activo:  # cayó mientras el paquete viajaba hacia él (incluye el servidor)
+                self._perder_paquete(tarea, servidor)
+                return
 
-        if not servidor.activo:
-            self._perder_paquete(tarea, servidor)
-            return
         self.tareas_en_transito -= 1
         servidor.iniciar(tarea.cpu)
         servidor.procesos[tarea.id] = self.env.process(self._procesar(tarea, servidor))
