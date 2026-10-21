@@ -48,6 +48,8 @@ python main.py simular                # dashboard en tiempo real
 python main.py simular --sin-gui      # simula sin ventana y genera el reporte PDF en reportes/
 python main.py simular --duracion 300 --tasa 5 --semilla 7 --velocidad 8
 python main.py --config mi_red.json simular   # usar otra configuración
+python main.py simular --algoritmo bellman-ford                        # rutas con Bellman-Ford en vez de DP por etapas
+python main.py --config datos/configuracion_bellman_ford.json simular  # red con enlaces laterales (solo Bellman-Ford)
 ```
 
 Cada módulo matemático también se puede ejecutar **de forma independiente** por consola:
@@ -55,7 +57,8 @@ Cada módulo matemático también se puede ejecutar **de forma independiente** p
 | Comando | Qué muestra |
 |---|---|
 | `python main.py ruta [--falla CR1] [--destino TR4]` | Tablas de la recursión hacia adelante y hacia atrás, y la ruta óptima a cada clúster |
-| `python main.py ruta --ejemplo-clase` | Ejemplo de clase de las 7 ciudades (1 → 4 → 5 → 7, 21 km) por ambas recursiones |
+| `python main.py ruta --algoritmo bellman-ford` | Iteraciones `f_0 … f_K` de Bellman-Ford, tabla final y comparación con la DP por etapas |
+| `python main.py ruta --ejemplo-clase` | Ejemplo de clase de las 7 ciudades (1 → 4 → 5 → 7, 21 km) por ambas recursiones y por Bellman-Ford |
 | `python main.py mochila [--capacidad 12 --tareas 8]` | Modelo de volumen-carga con la tabla `f_i(w)` y las tareas elegidas |
 | `python main.py mochila --ejemplo-clase` | Ejemplo de clase del barco de 4 t (varias unidades por artículo, $62.000) |
 | `python main.py temperatura [--emergencia 80]` | `T(x)`, `T'(x)`, `T''(x)`, puntos estacionarios, inflexión y punto crítico |
@@ -85,11 +88,13 @@ de las capas internas.
 ```
 main.py                     punto de entrada
 datos/
-  configuracion_default.json   datos de prueba por defecto
+  configuracion_default.json      datos de prueba por defecto
+  configuracion_bellman_ford.json la misma red con enlaces laterales (CR1↔CR2, AG1↔AG2, AG2↔AG3)
 datastream/
   dominio/                  entidades: Nodo, Enlace, Topologia, Servidor, Cluster, Tarea
   modelos/                  núcleo matemático puro (independiente y probado)
     ruta_mas_corta.py         programación dinámica por etapas
+    bellman_ford.py           programación dinámica sobre un grafo general (alternativa)
     mochila.py                modelo de volumen-carga
     temperatura.py            análisis con derivadas (sympy)
     refrigeracion.py          método de gradiente
@@ -139,6 +144,22 @@ destino fijo. Ambas dan la misma ruta y la misma latencia:
 f_n(destino) = 0
 f_i(x_i)     = min { d(x_i, x_(i+1)) + f_(i+1)(x_(i+1)) }
 ```
+
+#### Alternativa: Bellman-Ford sobre un grafo general
+
+La DP por etapas exige que cada enlace una etapas consecutivas. Como opción se puede usar **Bellman-Ford**, que también
+es programación dinámica, pero con el **número de enlaces** como etapa. Así admite enlaces entre nodos de una misma
+etapa, ciclos e incluso latencias negativas (detecta los ciclos negativos):
+
+```
+f_0(GW) = 0,  f_0(v) = ∞
+f_k(v)  = min { f_(k-1)(v),  min_u [ f_(k-1)(u) + d(u, v) ] }     k = 1, …, n − 1
+```
+
+Se activa con `"algoritmo": "bellman_ford"` en la sección `topologia` del JSON, o con `--algoritmo bellman-ford`. En
+[`datos/configuracion_bellman_ford.json`](datos/configuracion_bellman_ford.json) hay enlaces laterales (CR1↔CR2,
+AG1↔AG2, AG2↔AG3) que la DP por etapas no admite: con ellos, por ejemplo, la ruta al Cluster B baja de 2.20 s a 2.10 s
+(`GW > CR1 > AG1 > AG2 > TR2`). En una red por etapas ambos algoritmos dan las mismas latencias óptimas.
 
 ### Modelo de volumen-carga (mochila 0/1)
 
@@ -233,7 +254,7 @@ datos por defecto.
 | Sección | Campos principales |
 |---|---|
 | `simulacion` | `duracion` (s), `semilla`, `tasa_llegada` (tareas/s), `amplitud_pico`, `periodo_pico`, `intervalo_despacho`, `intervalo_rutas`, `intervalo_control`, `espera_maxima`, `factor_congestion`, `suavizado_congestion` |
-| `topologia` | `etapas` (lista de listas de nodos; la etapa 0 es el gateway) y `enlaces` (`origen`, `destino`, `latencia` en s, siempre entre etapas consecutivas) |
+| `topologia` | `etapas` (lista de listas de nodos; la etapa 0 es el gateway), `enlaces` (`origen`, `destino`, `latencia` en s) y `algoritmo` opcional: `"etapas"` (por defecto; los enlaces deben unir etapas consecutivas) o `"bellman_ford"` (admite enlaces entre cualquier par de nodos distintos) |
 | `clusters` | `nombre`, `switch` (nodo de la última etapa), `eficiencia`, `latencia_acceso`, `servidores` (`id`, `capacidad`) |
 | `tipos_tarea` | `nombre`, `probabilidad` (deben sumar 1), `cpu` [mín, máx], `prioridad` [mín, máx] (1-10), `tiempo_servicio` medio (s) |
 | `fallas` | `mtbf_router`, `mttr_router`, `mtbf_servidor`, `mttr_servidor` (s) |
@@ -244,12 +265,14 @@ datos por defecto.
 ## Validaciones
 
 - **Archivo de configuración:** tipos, rangos, campos obligatorios, JSON mal formado (con línea y columna), nodos
-  repetidos o inexistentes, enlaces que saltan etapas, nodos inalcanzables, switches inválidos, probabilidades que no
-  suman 1, tareas más grandes que el servidor más pequeño. La función térmica solo acepta `x`, números, operadores y
+  repetidos o inexistentes, enlaces que saltan etapas (con la DP por etapas), lazos de un nodo consigo mismo,
+  algoritmo de rutas desconocido, nodos inalcanzables, switches inválidos, probabilidades que no suman 1, tareas más
+  grandes que el servidor más pequeño. La función térmica solo acepta `x`, números, operadores y
   `exp, log, sqrt, sin, cos, tanh`.
 - **Comandos:** cada argumento se valida con rangos (`--tasa 99` → error claro), las listas deben tener un valor por
   clúster y los nodos que se marcan como caídos deben existir (el gateway no puede fallar). El destino de la recursión
-  hacia atrás debe existir, no puede ser el gateway ni estar caído.
+  hacia atrás debe existir, no puede ser el gateway ni estar caído. No se puede forzar la DP por etapas sobre una red
+  con enlaces laterales.
 - **Menú interactivo:** vuelve a pedir el dato hasta que sea válido, y Enter acepta el valor por defecto. Un error
   inesperado se informa sin cerrar el menú.
 - **Dashboard:** límites de velocidad y de tasa de llegada, clúster inexistente, teclas no reconocidas y reportes
@@ -261,10 +284,11 @@ datos por defecto.
 python -m pytest
 ```
 
-117 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
-recursión hacia adelante comparada con la recursión hacia atrás, la mochila comparada con fuerza bruta, los puntos
-estacionarios analíticos, el gradiente comparado con diferencias finitas y con el óptimo analítico, las condiciones de
-Lagrange, el Hessiano orlado y el precio sombra, las fórmulas M/M/1, la pérdida de paquetes cuando un nodo cae durante
-el viaje, la validación de la configuración y de los comandos, el menú interactivo, los botones del dashboard, la respuesta ante errores de la API
-de IA y varias invariantes de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y
-reproducibilidad con la misma semilla).
+143 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
+recursión hacia adelante comparada con la recursión hacia atrás y con Bellman-Ford (incluidos ciclos y latencias
+negativas), la mochila comparada con fuerza bruta, los puntos estacionarios analíticos, el gradiente comparado con
+diferencias finitas y con el óptimo analítico, las condiciones de Lagrange, el Hessiano orlado y el precio sombra, las
+fórmulas M/M/1, la pérdida de paquetes cuando un nodo cae durante el viaje, la validación de la configuración y de los
+comandos, el menú interactivo, los botones del dashboard, la respuesta ante errores de la API de IA y varias invariantes
+de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y reproducibilidad con la misma
+semilla).

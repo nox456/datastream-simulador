@@ -18,6 +18,7 @@ from .modelos.temperatura import ModeloTermico
 
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
 RUTA_CONFIG_DEFECTO = RAIZ_PROYECTO / "datos" / "configuracion_default.json"
+ALGORITMOS_RUTAS = ("etapas", "bellman_ford")
 
 
 class ErrorConfiguracion(ValueError):
@@ -106,11 +107,20 @@ class Configuracion:
     termico: ParametrosTermicos
     refrigeracion: ParametrosRefrigeracion
     energia: ParametrosEnergia
+    algoritmo_rutas: str = "etapas"
 
     def con_cambios(self, **cambios_simulacion: Any) -> Configuracion:
         """Copia con parámetros de simulación sobrescritos (p. ej. desde la CLI)."""
         validos = {k: v for k, v in cambios_simulacion.items() if v is not None}
         return replace(self, simulacion=replace(self.simulacion, **validos))
+
+    def con_algoritmo(self, algoritmo: str | None) -> Configuracion:
+        """Copia con otro algoritmo de rutas, comprobando que la topología lo admita."""
+        if algoritmo is None:
+            return self
+        _validar_algoritmo(algoritmo, "algoritmo")
+        _validar_enlaces_para(algoritmo, self.etapas, self.enlaces)
+        return replace(self, algoritmo_rutas=algoritmo)
 
 
 # ---------------------------------------------------------------------- #
@@ -192,8 +202,28 @@ def _leer_simulacion(datos: dict) -> ParametrosSimulacion:
     )
 
 
-def _leer_topologia(datos: dict) -> tuple[tuple[tuple[str, ...], ...], tuple[ConfigEnlace, ...]]:
+def _validar_algoritmo(algoritmo: Any, nombre: str) -> None:
+    if algoritmo not in ALGORITMOS_RUTAS:
+        raise ErrorConfiguracion(f"'{nombre}' debe ser uno de {list(ALGORITMOS_RUTAS)} (recibido: {algoritmo!r}).")
+
+
+def _validar_enlaces_para(algoritmo: str, etapas, enlaces) -> None:
+    """La DP por etapas solo admite enlaces entre etapas consecutivas; Bellman-Ford admite cualquiera."""
+    if algoritmo != "etapas":
+        return
+    etapa_de = {nodo: k for k, etapa in enumerate(etapas) for nodo in etapa}
+    for e in enlaces:
+        if etapa_de[e.destino] != etapa_de[e.origen] + 1:
+            raise ErrorConfiguracion(
+                f"El enlace {e.origen}→{e.destino} no une etapas consecutivas: la DP por etapas no lo admite "
+                "(use el algoritmo 'bellman_ford')."
+            )
+
+
+def _leer_topologia(datos: dict) -> tuple[tuple[tuple[str, ...], ...], tuple[ConfigEnlace, ...], str]:
     t = _seccion(datos, "topologia")
+    algoritmo = t.get("algoritmo", "etapas")
+    _validar_algoritmo(algoritmo, "topologia.algoritmo")
     etapas = t.get("etapas")
     if not isinstance(etapas, list) or len(etapas) < 2:
         raise ErrorConfiguracion("'topologia.etapas' debe ser una lista con al menos 2 etapas.")
@@ -222,8 +252,13 @@ def _leer_topologia(datos: dict) -> tuple[tuple[tuple[str, ...], ...], tuple[Con
         for nodo in (origen, destino):
             if nodo not in etapa_de:
                 raise ErrorConfiguracion(f"'{ruta}' usa el nodo desconocido '{nodo}'.")
-        if etapa_de[destino] != etapa_de[origen] + 1:
-            raise ErrorConfiguracion(f"'{ruta}': {origen}→{destino} debe unir etapas consecutivas.")
+        if origen == destino:
+            raise ErrorConfiguracion(f"'{ruta}': el enlace {origen}→{destino} une un nodo consigo mismo.")
+        if algoritmo == "etapas" and etapa_de[destino] != etapa_de[origen] + 1:
+            raise ErrorConfiguracion(
+                f"'{ruta}': {origen}→{destino} debe unir etapas consecutivas "
+                "(para enlaces entre nodos de una misma etapa use \"algoritmo\": \"bellman_ford\")."
+            )
         if (origen, destino) in claves:
             raise ErrorConfiguracion(f"'{ruta}': el enlace {origen}→{destino} está repetido.")
         claves.add((origen, destino))
@@ -234,7 +269,7 @@ def _leer_topologia(datos: dict) -> tuple[tuple[tuple[str, ...], ...], tuple[Con
     for nodo, k in etapa_de.items():
         if k > 0 and nodo not in con_entrada:
             raise ErrorConfiguracion(f"El nodo '{nodo}' no tiene enlaces de entrada (inalcanzable).")
-    return tuple(tuple(e) for e in etapas), tuple(enlaces)
+    return tuple(tuple(e) for e in etapas), tuple(enlaces), algoritmo
 
 
 def _leer_clusters(datos: dict, ultima_etapa: tuple[str, ...], nodos_red: set[str]) -> tuple[ConfigCluster, ...]:
@@ -374,7 +409,7 @@ def _leer_fallas(datos: dict) -> ParametrosFallas:
 def construir_configuracion(datos: Any) -> Configuracion:
     if not isinstance(datos, dict):
         raise ErrorConfiguracion("El archivo de configuración debe contener un objeto JSON.")
-    etapas, enlaces = _leer_topologia(datos)
+    etapas, enlaces, algoritmo = _leer_topologia(datos)
     nodos_red = {nodo for etapa in etapas for nodo in etapa}
     clusters = _leer_clusters(datos, etapas[-1], nodos_red)
     capacidad_minima = min(s.capacidad for c in clusters for s in c.servidores)
@@ -388,6 +423,7 @@ def construir_configuracion(datos: Any) -> Configuracion:
         termico=_leer_termico(datos),
         refrigeracion=_leer_refrigeracion(datos),
         energia=_leer_energia(datos),
+        algoritmo_rutas=algoritmo,
     )
 
 

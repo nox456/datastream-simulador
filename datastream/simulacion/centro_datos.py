@@ -27,6 +27,7 @@ from ..configuracion import Configuracion
 from ..dominio.red import Enlace, Nodo, TipoNodo, Topologia
 from ..dominio.servidor import Cluster, Servidor
 from ..dominio.tarea import PaqueteEnTransito, Tarea
+from ..modelos.bellman_ford import BellmanFordDP
 from ..modelos.mochila import Articulo, ModeloVolumenCarga
 from ..modelos.presupuesto import AsignadorEnergia, ResultadoLagrange
 from ..modelos.refrigeracion import OptimizadorRefrigeracion, ResultadoGradiente
@@ -74,7 +75,7 @@ class SimuladorCentroDatos:
         self._construir_red()
 
         # --- Modelos matemáticos ------------------------------------------------
-        self.enrutador = RutaMasCortaDP(self.topologia.ids_por_etapa())
+        self.enrutador = self._crear_enrutador()
         self.mochila = ModeloVolumenCarga()
         t = config.termico
         self.modelo_termico = ModeloTermico(t.funcion, (t.carga_min, t.carga_max), t.temperatura_emergencia)
@@ -148,6 +149,12 @@ class SimuladorCentroDatos:
         self.topologia = Topologia(etapas, enlaces)
         self.cluster_de = {s.id: c for c in self.clusters for s in c.servidores}
         self.capacidad_total = sum(s.capacidad for s in self.servidores)
+
+    def _crear_enrutador(self) -> RutaMasCortaDP | BellmanFordDP:
+        """DP por etapas (por defecto) o Bellman-Ford, que admite enlaces entre nodos de una misma etapa."""
+        if self.config.algoritmo_rutas == "bellman_ford":
+            return BellmanFordDP(list(self.topologia.nodos), self.topologia.gateway.id)
+        return RutaMasCortaDP(self.topologia.ids_por_etapa())
 
     @staticmethod
     def _tipo_por_etapa(k: int, total: int) -> TipoNodo:

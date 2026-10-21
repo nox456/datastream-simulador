@@ -7,6 +7,7 @@ import random
 from typing import Sequence
 
 from .configuracion import Configuracion
+from .modelos.bellman_ford import BellmanFordDP
 from .modelos.mochila import Articulo, ModeloMochilaUnidades, ModeloVolumenCarga, ResultadoMochilaUnidades
 from .modelos.presupuesto import AsignadorEnergia
 from .modelos.refrigeracion import OptimizadorRefrigeracion
@@ -37,7 +38,7 @@ def _numero(valor: float) -> str:
     return f"{valor:.2f}" if valor != INFINITO else "inf"
 
 
-def _imprimir_hacia_adelante(resultado: ResultadoRutas) -> None:
+def _imprimir_hacia_adelante(resultado: ResultadoRutas, etiqueta_etapa: str = "Etapa") -> None:
     filas = [
         [
             f.etapa,
@@ -48,7 +49,7 @@ def _imprimir_hacia_adelante(resultado: ResultadoRutas) -> None:
         ]
         for f in resultado.tabla
     ]
-    imprimir_tabla(["Etapa", "Nodo y", "Candidatos x: f(x)+d(x,y)", "f_k(y)", "Decisión x*"], filas)
+    imprimir_tabla([etiqueta_etapa, "Nodo y", "Candidatos x: f(x)+d(x,y)", "f_k(y)", "Decisión x*"], filas)
 
 
 def _imprimir_hacia_atras(resultado: ResultadoHaciaAtras) -> None:
@@ -71,17 +72,40 @@ def _imprimir_hacia_atras(resultado: ResultadoHaciaAtras) -> None:
         )
 
 
-def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = (), destino: str | None = None) -> None:
-    titulo("MÓDULO 1 · Ruta más corta con programación dinámica")
-    etapas = [list(e) for e in config.etapas]
+def _arcos_activos(config: Configuracion, nodos_caidos: Sequence[str]) -> dict[tuple[str, str], float]:
     caidos = set(nodos_caidos)
-    arcos = {
+    if caidos:
+        print(f"Nodos fuera de servicio: {', '.join(sorted(caidos))}")
+    return {
         (e.origen, e.destino): e.latencia
         for e in config.enlaces
         if e.origen not in caidos and e.destino not in caidos
     }
-    if caidos:
-        print(f"Nodos fuera de servicio: {', '.join(sorted(caidos))}")
+
+
+def _imprimir_politica(config: Configuracion, resultado: ResultadoRutas) -> None:
+    print("\nPolítica óptima (ruta reconstruida desde cada destino):")
+    imprimir_tabla(
+        ["Clúster", "Switch", "Ruta", "Latencia (s)"],
+        [
+            [
+                c.nombre,
+                c.switch,
+                " > ".join(resultado.ruta_hacia(c.switch) or ["inalcanzable"]),
+                _numero(resultado.latencia_hacia(c.switch)),
+            ]
+            for c in config.clusters
+        ],
+    )
+
+
+def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = (), destino: str | None = None) -> None:
+    if config.algoritmo_rutas == "bellman_ford":
+        demo_bellman_ford(config, nodos_caidos)
+        return
+    titulo("MÓDULO 1 · Ruta más corta con programación dinámica")
+    etapas = [list(e) for e in config.etapas]
+    arcos = _arcos_activos(config, nodos_caidos)
     modelo = RutaMasCortaDP(etapas)
 
     print("\n1) Recursión hacia adelante (desde el gateway hacia todos los nodos, latencias base en s):")
@@ -102,19 +126,45 @@ def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = (), destino: 
         iguales = math.isclose(atras.latencia, resultado.latencia_hacia(destino))
         print("Ambas recursiones dan la misma latencia óptima." if iguales else "ATENCIÓN: las recursiones no coinciden.")
 
-    print("\nPolítica óptima (ruta reconstruida desde cada destino):")
+    _imprimir_politica(config, resultado)
+
+
+def demo_bellman_ford(config: Configuracion, nodos_caidos: Sequence[str] = ()) -> None:
+    titulo("MÓDULO 1 · Ruta más corta con Bellman-Ford (programación dinámica sobre un grafo general)")
+    arcos = _arcos_activos(config, nodos_caidos)
+    nodos = [n for etapa in config.etapas for n in etapa]
+    resultado = BellmanFordDP(nodos, config.etapas[0][0]).resolver(arcos)
+    laterales = [f"{u}→{v}" for u, v in arcos if _etapa(config, v) != _etapa(config, u) + 1]
+    print("f_0(GW) = 0 ;  f_k(v) = min { f_(k-1)(v), min_u [ f_(k-1)(u) + d(u, v) ] }   (k = enlaces usados)")
+    if laterales:
+        print(f"Enlaces que la DP por etapas no admite: {', '.join(laterales)}")
+
+    print("\n1) Iteraciones: f_k(v) es la latencia mínima usando a lo sumo k enlaces")
+    columnas = range(len(resultado.iteraciones))
     imprimir_tabla(
-        ["Clúster", "Switch", "Ruta", "Latencia (s)"],
-        [
-            [
-                c.nombre,
-                c.switch,
-                " > ".join(resultado.ruta_hacia(c.switch) or ["inalcanzable"]),
-                _numero(resultado.latencia_hacia(c.switch)),
-            ]
-            for c in config.clusters
-        ],
+        ["Nodo v"] + [f"f_{k}" for k in columnas],
+        [[v] + [_numero(resultado.iteraciones[k][v]) for k in columnas] for v in nodos],
     )
+    print(f"Se detuvo en k = {len(resultado.iteraciones) - 1}: en la siguiente iteración ningún valor mejoró.")
+    if resultado.ciclo_negativo:
+        print("ATENCIÓN: hay un ciclo de latencia negativa; la ruta más corta no está definida.")
+        return
+
+    print("\n2) Tabla final (k = número de enlaces de la ruta óptima):")
+    _imprimir_hacia_adelante(resultado, "Enlaces k")
+    _imprimir_politica(config, resultado)
+
+    if not laterales:
+        por_etapas = RutaMasCortaDP([list(e) for e in config.etapas]).resolver(arcos)
+        iguales = all(
+            math.isclose(por_etapas.latencia_hacia(c.switch), resultado.latencia_hacia(c.switch)) for c in config.clusters
+        )
+        print("La DP por etapas da las mismas latencias óptimas." if iguales
+              else "ATENCIÓN: la DP por etapas da latencias distintas.")
+
+
+def _etapa(config: Configuracion, nodo: str) -> int:
+    return next(k for k, etapa in enumerate(config.etapas) if nodo in etapa)
 
 
 # Datos de los ejemplos resueltos en la Lectura 1 de Programación Dinámica (láminas 4-13 y 18-21).
@@ -139,6 +189,9 @@ def demo_ruta_clase() -> None:
     _imprimir_hacia_atras(atras)
     print(f"\nRuta más corta: {' > '.join(atras.ruta())} con {atras.latencia:.0f} km "
           f"(hacia adelante: {' > '.join(adelante.ruta_hacia('7'))}, {adelante.latencia_hacia('7'):.0f} km)")
+    bellman = BellmanFordDP([n for etapa in ETAPAS_CLASE for n in etapa], "1").resolver(ARCOS_CLASE)
+    print(f"Con Bellman-Ford (grafo general): {' > '.join(bellman.ruta_hacia('7'))} con "
+          f"{bellman.latencia_hacia('7'):.0f} km en {len(bellman.iteraciones) - 1} iteraciones")
 
 
 def demo_mochila_clase() -> None:

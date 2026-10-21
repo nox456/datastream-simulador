@@ -172,12 +172,20 @@ class GeneradorReportePDF:
         # 2. Módulo 1
         e.append(Spacer(1, 8))
         e.append(self._p("2. Módulo 1 · Programación dinámica", "h1"))
-        e.append(self._p("Ruta más corta (recursión hacia adelante por etapas)", "h2"))
-        e.append(self._p("f<sub>0</sub>(GW) = 0;  f<sub>k</sub>(y) = min<sub>x</sub> { f<sub>k-1</sub>(x) + d(x, y) }, "
-                         "con d(x, y) la latencia actual del enlace (incluye congestión). Tabla de la última recursión:"))
         rutas = resumen["rutas"]
+        bellman_ford = rutas["algoritmo"] == "bellman_ford"
+        if bellman_ford:
+            e.append(self._p("Ruta más corta (Bellman-Ford sobre un grafo general)", "h2"))
+            e.append(self._p(
+                "f<sub>0</sub>(GW) = 0;  f<sub>k</sub>(v) = min{ f<sub>k-1</sub>(v), min<sub>u</sub> [ f<sub>k-1</sub>(u) "
+                "+ d(u, v) ] }, con k el número de enlaces usados y d(u, v) la latencia actual (incluye congestión). "
+                "Admite enlaces entre nodos de una misma etapa. Tabla de la última recursión (k = enlaces de la ruta óptima):"))
+        else:
+            e.append(self._p("Ruta más corta (recursión hacia adelante por etapas)", "h2"))
+            e.append(self._p("f<sub>0</sub>(GW) = 0;  f<sub>k</sub>(y) = min<sub>x</sub> { f<sub>k-1</sub>(x) + d(x, y) }, "
+                             "con d(x, y) la latencia actual del enlace (incluye congestión). Tabla de la última recursión:"))
         e.append(self._tabla(
-            ["Etapa", "Nodo y", "Candidatos x: f(x)+d(x,y)", "f(y)", "Decisión x*"],
+            ["k" if bellman_ford else "Etapa", "Nodo y", "Candidatos x: f(x)+d(x,y)", "f(y)", "Decisión x*"],
             [[f["etapa"], f["nodo"], f["candidatos"], _f(f["f"]), f["decision"]] for f in rutas["tabla"]],
             [1.4 * cm, 1.8 * cm, 8.6 * cm, 2 * cm, 2.6 * cm]))
         e.append(Spacer(1, 6))

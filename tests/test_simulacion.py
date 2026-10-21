@@ -227,3 +227,60 @@ def test_la_ia_recibe_el_estado_final_separado_de_los_maximos(simulador):
     enviado = analista_ia._resumen_para_ia(resumen)
     for clave in ("clusters_al_final", "temperatura_maxima_observada", "temperatura_emergencia", "destacada"):
         assert clave in analista_ia.INSTRUCCIONES_SISTEMA and f'"{clave}"' in enviado
+
+
+RUTA_CONFIG_BELLMAN_FORD = RUTA_CONFIG_DEFECTO.with_name("configuracion_bellman_ford.json")
+
+
+def test_por_defecto_se_usa_la_dp_por_etapas():
+    assert cargar_configuracion().algoritmo_rutas == "etapas"
+    assert cargar_configuracion(RUTA_CONFIG_BELLMAN_FORD).algoritmo_rutas == "bellman_ford"
+
+
+def test_enlaces_dentro_de_una_etapa_solo_con_bellman_ford():
+    lateral = {"origen": "CR1", "destino": "CR2", "latencia": 0.3}
+    with pytest.raises(ErrorConfiguracion, match="bellman_ford"):
+        construir_configuracion(_modificado(lambda d: d["topologia"]["enlaces"].append(lateral)))
+
+    def con_bellman_ford(d):
+        d["topologia"]["enlaces"].append(lateral)
+        d["topologia"]["algoritmo"] = "bellman_ford"
+
+    assert construir_configuracion(_modificado(con_bellman_ford)).algoritmo_rutas == "bellman_ford"
+
+
+@pytest.mark.parametrize(
+    "cambio",
+    [
+        lambda d: d["topologia"].update(algoritmo="dijkstra"),
+        lambda d: (d["topologia"].update(algoritmo="bellman_ford"),
+                   d["topologia"]["enlaces"].append({"origen": "CR1", "destino": "CR1", "latencia": 1})),
+    ],
+)
+def test_algoritmo_o_enlaces_invalidos(cambio):
+    with pytest.raises(ErrorConfiguracion):
+        construir_configuracion(_modificado(cambio))
+
+
+def test_con_algoritmo_comprueba_la_topologia():
+    config = cargar_configuracion(RUTA_CONFIG_BELLMAN_FORD)
+    with pytest.raises(ErrorConfiguracion, match="no une etapas consecutivas"):
+        config.con_algoritmo("etapas")
+    assert cargar_configuracion().con_algoritmo("bellman_ford").algoritmo_rutas == "bellman_ford"
+
+
+def test_simulacion_con_bellman_ford_usa_los_enlaces_laterales():
+    sim = SimuladorCentroDatos(cargar_configuracion(RUTA_CONFIG_BELLMAN_FORD).con_cambios(duracion=200))
+    sim.ejecutar()
+    m = sim.metricas
+    assert m.generadas == m.procesadas + m.descartadas + len(sim.cola) + sim.tareas_en_transito + sim.en_proceso
+    laterales = {(e.origen, e.destino) for e in sim.config.enlaces if e.origen[:2] == e.destino[:2]}
+    usados = {t for c in sim.cambios_ruta if c.nueva for t in zip(c.nueva, c.nueva[1:])}
+    assert usados & laterales
+    assert construir_resumen(sim)["rutas"]["algoritmo"] == "bellman_ford"
+
+
+def test_ambos_algoritmos_dan_las_mismas_rutas_en_la_red_por_etapas():
+    por_etapas = SimuladorCentroDatos(cargar_configuracion())
+    bellman = SimuladorCentroDatos(cargar_configuracion().con_algoritmo("bellman_ford"))
+    assert por_etapas.rutas_optimas == bellman.rutas_optimas

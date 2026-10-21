@@ -64,3 +64,28 @@ def test_opcion_9_del_menu_muestra_los_ejemplos_de_clase(monkeypatch, capsys):
     assert cli.menu_interactivo(cargar_configuracion(), None) == 0
     salida = capsys.readouterr().out
     assert "1 > 4 > 5 > 7 con 21 km" in salida and "rendimiento 62" in salida
+
+
+def test_ruta_con_bellman_ford_por_linea_de_comandos(capsys):
+    assert cli.main(["ruta", "--algoritmo", "bellman-ford"]) == 0
+    salida = capsys.readouterr().out
+    assert "Bellman-Ford" in salida and "La DP por etapas da las mismas latencias óptimas." in salida
+
+
+@pytest.mark.parametrize(
+    "argumentos",
+    [
+        ["--config", "datos/configuracion_bellman_ford.json", "ruta", "--algoritmo", "etapas"],
+        ["ruta", "--algoritmo", "bellman-ford", "--destino", "TR4"],
+    ],
+)
+def test_combinaciones_invalidas_de_algoritmo(argumentos, capsys):
+    assert cli.main(argumentos) == 2
+    assert "Error de datos" in capsys.readouterr().err
+
+
+def test_menu_pregunta_el_algoritmo_y_lo_valida(monkeypatch, capsys):
+    _responder(monkeypatch, ["3", "dijkstra", "bellman-ford", "", "", "0"])
+    assert cli.menu_interactivo(cargar_configuracion(), None) == 0
+    salida = capsys.readouterr().out
+    assert "Escriba 'etapas' o 'bellman-ford'" in salida and "Bellman-Ford" in salida

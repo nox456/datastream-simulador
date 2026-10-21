@@ -11,6 +11,7 @@ from . import consola
 from .configuracion import Configuracion, ErrorConfiguracion, cargar_configuracion, cargar_variables_entorno
 
 VELOCIDADES = [0.5, 1, 2, 4, 8, 16, 32]
+ALGORITMOS_CLI = ["etapas", "bellman-ford"]
 
 
 # ====================================================================== #
@@ -82,6 +83,11 @@ def _validar_nodos(config: Configuracion, nodos: list[str]) -> None:
             raise ErrorConfiguracion(f"El nodo '{nodo}' no existe. Nodos válidos: {', '.join(sorted(validos))}")
 
 
+def _algoritmo_interno(texto: str | None) -> str | None:
+    """'bellman-ford' (como se escribe en la consola) → 'bellman_ford' (como se guarda en la configuración)."""
+    return texto.replace("-", "_") if texto else None
+
+
 def _validar_destino(config: Configuracion, destino: str | None, caidos: list[str]) -> None:
     if destino is None:
         return
@@ -118,10 +124,12 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--tasa", type=_numero_en_rango(float, 0.5, 20), help="tasa de llegada base (tareas/s)")
     p.add_argument("--velocidad", type=float, choices=VELOCIDADES, default=4, help="velocidad inicial del dashboard")
     p.add_argument("--sin-gui", action="store_true", help="ejecuta sin ventana y genera el reporte PDF")
+    p.add_argument("--algoritmo", choices=ALGORITMOS_CLI, help="algoritmo de rutas (por defecto el de la configuración)")
 
     p = sub.add_parser("ruta", help="módulo 1: tablas de programación dinámica de la ruta más corta")
     p.add_argument("--falla", action="append", default=[], metavar="NODO", help="nodo fuera de servicio (repetible)")
     p.add_argument("--destino", metavar="NODO", help="destino de la recursión hacia atrás (por defecto el switch del primer clúster)")
+    p.add_argument("--algoritmo", choices=ALGORITMOS_CLI, help="'etapas' (DP por etapas) o 'bellman-ford' (grafo general)")
     p.add_argument("--ejemplo-clase", action="store_true", help="resuelve el ejemplo de la red de 7 ciudades visto en clase")
 
     p = sub.add_parser("mochila", help="módulo 1: modelo de volumen-carga")
@@ -145,11 +153,16 @@ def construir_parser() -> argparse.ArgumentParser:
 def ejecutar_comando(config: Configuracion, args: argparse.Namespace) -> int:
     if args.comando == "simular":
         config = config.con_cambios(duracion=args.duracion, semilla=args.semilla, tasa_llegada=args.tasa)
+        config = config.con_algoritmo(_algoritmo_interno(args.algoritmo))
         return ejecutar_simulacion(config, args.sin_gui, args.velocidad)
     if args.comando == "ruta":
         if args.ejemplo_clase:
             consola.demo_ruta_clase()
             return 0
+        config = config.con_algoritmo(_algoritmo_interno(args.algoritmo))
+        if args.destino and config.algoritmo_rutas == "bellman_ford":
+            raise ErrorConfiguracion("--destino es para la recursión hacia atrás de la DP por etapas; "
+                                     "Bellman-Ford calcula las rutas hacia todos los nodos a la vez.")
         _validar_nodos(config, args.falla)
         _validar_destino(config, args.destino, args.falla)
         consola.demo_ruta(config, args.falla, args.destino)
@@ -212,6 +225,18 @@ def pedir_lista(mensaje: str, cantidad: int, minimo: float, maximo: float, defec
             return valores
 
 
+def pedir_algoritmo(config: Configuracion) -> str:
+    """Pide el algoritmo de rutas hasta que sea válido. Enter conserva el de la configuración."""
+    actual = config.algoritmo_rutas.replace("_", "-")
+    while True:
+        texto = input(f"Algoritmo de rutas: etapas o bellman-ford (Enter = {actual}): ").strip().lower()
+        if not texto:
+            return config.algoritmo_rutas
+        if texto in ALGORITMOS_CLI:
+            return _algoritmo_interno(texto)
+        print("  ✗ Escriba 'etapas' o 'bellman-ford'.")
+
+
 def pedir_si_no(mensaje: str, defecto: bool = True) -> bool:
     while True:
         texto = input(f"{mensaje} (s/n, Enter = {'s' if defecto else 'n'}): ").strip().lower()
@@ -249,16 +274,20 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
                 duracion = pedir_numero("Duración simulada (s)", 10, 86_400, config.simulacion.duracion)
                 semilla = pedir_numero("Semilla aleatoria", 0, 2**31 - 1, config.simulacion.semilla, entero=True)
                 tasa = pedir_numero("Tasa de llegada base (tareas/s)", 0.5, 20, config.simulacion.tasa_llegada)
-                ajustada = config.con_cambios(duracion=duracion, semilla=semilla, tasa_llegada=tasa)
+                algoritmo = pedir_algoritmo(config)
+                ajustada = config.con_cambios(duracion=duracion, semilla=semilla, tasa_llegada=tasa).con_algoritmo(algoritmo)
                 ejecutar_simulacion(ajustada, sin_gui=opcion == "2", velocidad=4)
             elif opcion == "3":
+                ajustada = config.con_algoritmo(pedir_algoritmo(config))
                 texto = input("Nodos caídos separados por coma (Enter = ninguno): ").strip()
                 nodos = [n.strip() for n in texto.split(",") if n.strip()]
-                _validar_nodos(config, nodos)
-                defecto = config.clusters[0].switch
-                destino = input(f"Destino de la recursión hacia atrás (Enter = {defecto}): ").strip() or None
-                _validar_destino(config, destino, nodos)
-                consola.demo_ruta(config, nodos, destino)
+                _validar_nodos(ajustada, nodos)
+                destino = None
+                if ajustada.algoritmo_rutas == "etapas":
+                    defecto = ajustada.clusters[0].switch
+                    destino = input(f"Destino de la recursión hacia atrás (Enter = {defecto}): ").strip() or None
+                    _validar_destino(ajustada, destino, nodos)
+                consola.demo_ruta(ajustada, nodos, destino)
             elif opcion == "4":
                 capacidad = pedir_numero("Capacidad del servidor (CPU)", 1, 200, 16, entero=True)
                 tareas = pedir_numero("Cantidad de tareas en cola", 1, 60, 8, entero=True)

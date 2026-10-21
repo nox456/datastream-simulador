@@ -115,6 +115,7 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
         },
         "colas": colas,
         "rutas": {
+            "algoritmo": cfg.algoritmo_rutas,
             "tabla": tabla,
             "por_cluster": [
                 {

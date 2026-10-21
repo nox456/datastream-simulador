@@ -1,6 +1,7 @@
 """Pruebas del Módulo 1: ruta más corta (DP por etapas) y volumen-carga (mochila)."""
 
 import itertools
+import math
 import random
 
 import pytest
@@ -172,3 +173,55 @@ def test_mochila_por_unidades_con_limite_1_es_la_mochila_0_1(semilla):
     unidades = ModeloMochilaUnidades().resolver(articulos, capacidad, limites=[1] * len(articulos))
     assert unidades.valor_total == pytest.approx(ModeloVolumenCarga().resolver(articulos, capacidad).valor_total)
     assert unidades.peso_total <= capacidad
+
+
+from datastream.modelos.bellman_ford import BellmanFordDP  # noqa: E402
+
+
+def test_bellman_ford_da_lo_mismo_que_la_dp_por_etapas():
+    resultado = BellmanFordDP([n for etapa in ETAPAS for n in etapa], "A").resolver(ARCOS)
+    assert resultado.ruta_hacia("F") == ["A", "C", "D", "F"] and resultado.latencia_hacia("F") == pytest.approx(6.0)
+    assert resultado.iteraciones[0] == {"A": 0.0, "B": math.inf, "C": math.inf, "D": math.inf, "E": math.inf, "F": math.inf}
+    assert resultado.iteraciones[1]["B"] == 2.0 and resultado.iteraciones[1]["D"] == math.inf
+
+
+@pytest.mark.parametrize("semilla", range(10))
+def test_bellman_ford_coincide_con_la_dp_por_etapas_en_redes_aleatorias(semilla):
+    azar = random.Random(semilla)
+    etapas = [["O"], ["A", "B", "C"], ["D", "E"], ["F", "G", "H"]]
+    arcos = {(x, y): azar.uniform(0.1, 10) for k in range(3) for x in etapas[k] for y in etapas[k + 1] if azar.random() < 0.8}
+    por_etapas = RutaMasCortaDP(etapas).resolver(arcos)
+    bellman = BellmanFordDP([n for e in etapas for n in e], "O").resolver(arcos)
+    for nodo in "ABCDEFGH":
+        assert bellman.latencia_hacia(nodo) == pytest.approx(por_etapas.latencia_hacia(nodo))
+
+
+def test_bellman_ford_usa_enlaces_dentro_de_una_etapa():
+    arcos = {("A", "B"): 1.0, ("A", "C"): 10.0, ("B", "C"): 1.0, ("C", "D"): 1.0, ("B", "D"): 9.0}
+    resultado = BellmanFordDP(["A", "B", "C", "D"], "A").resolver(arcos)
+    assert resultado.ruta_hacia("D") == ["A", "B", "C", "D"] and resultado.latencia_hacia("D") == pytest.approx(3.0)
+    assert RutaMasCortaDP([["A"], ["B", "C"], ["D"]]).resolver(arcos).latencia_hacia("D") == pytest.approx(10.0)
+
+
+def test_bellman_ford_admite_ciclos_y_latencias_negativas():
+    arcos = {("A", "B"): 4.0, ("B", "C"): -2.0, ("C", "B"): 3.0, ("A", "C"): 5.0}
+    resultado = BellmanFordDP(["A", "B", "C"], "A").resolver(arcos)
+    assert not resultado.ciclo_negativo
+    assert resultado.ruta_hacia("C") == ["A", "B", "C"] and resultado.latencia_hacia("C") == pytest.approx(2.0)
+
+
+def test_bellman_ford_detecta_ciclos_negativos():
+    arcos = {("A", "B"): 1.0, ("B", "C"): -3.0, ("C", "B"): 1.0}
+    resultado = BellmanFordDP(["A", "B", "C"], "A").resolver(arcos)
+    assert resultado.ciclo_negativo and resultado.ruta_hacia("C") is None
+
+
+def test_bellman_ford_validaciones():
+    with pytest.raises(ValueError):
+        BellmanFordDP(["A", "A"], "A")
+    with pytest.raises(ValueError):
+        BellmanFordDP(["A", "B"], "Z")
+    with pytest.raises(ValueError):
+        BellmanFordDP(["A", "B"], "A").resolver({("A", "X"): 1.0})
+    with pytest.raises(ValueError):
+        BellmanFordDP(["A", "B"], "A").resolver({("A", "A"): 1.0})
