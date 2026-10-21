@@ -198,3 +198,11 @@ def test_resumen_incluye_el_hessiano_orlado(simulador):
     assert len(menores) == len(simulador.clusters) - 1  # órdenes 3 a n+1
     assert [m > 0 for m in menores] == [i % 2 == 0 for i in range(len(menores))]  # +, −, +, …
     assert verificacion["es_maximo"]
+
+
+def test_resumen_distingue_ruta_optima_y_ruta_en_uso(simulador):
+    resumen = construir_resumen(simulador)
+    for fila in resumen["rutas"]["por_cluster"]:
+        if fila["latencia_optima"] is not None and fila["latencia"] is not None:
+            # la ruta en uso nunca es más de un 8 % peor que la óptima de la DP
+            assert fila["latencia"] <= fila["latencia_optima"] * (1 + resumen["rutas"]["umbral_cambio_ruta"]) + 1e-9

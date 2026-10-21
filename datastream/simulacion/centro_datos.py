@@ -99,6 +99,9 @@ class SimuladorCentroDatos:
         self.tareas_en_transito = 0
         self.rutas_actuales: dict[str, tuple[str, ...] | None] = {}
         self.latencias_actuales: dict[str, float] = {}
+        # La ruta en uso puede diferir de la óptima de la DP por la regla anti-oscilación.
+        self.rutas_optimas: dict[str, tuple[str, ...] | None] = {}
+        self.latencias_optimas: dict[str, float] = {}
         self.cambios_ruta: list[CambioRuta] = []
         self.resultado_rutas: ResultadoRutas | None = None
         self.ultima_mochila: DecisionMochila | None = None
@@ -409,6 +412,8 @@ class SimuladorCentroDatos:
                 nueva, costo = optima, costo_optimo
             self.rutas_actuales[cluster.nombre] = nueva
             self.latencias_actuales[cluster.nombre] = costo
+            self.rutas_optimas[cluster.nombre] = optima
+            self.latencias_optimas[cluster.nombre] = costo_optimo
             if not registrar_cambios or nueva == anterior:
                 continue
             if nueva is None:

@@ -178,9 +178,13 @@ class GeneradorReportePDF:
             [1.4 * cm, 1.8 * cm, 8.6 * cm, 2 * cm, 2.6 * cm]))
         e.append(Spacer(1, 6))
         e.append(self._tabla(
-            ["Clúster", "Ruta óptima", "Latencia (s)"],
-            [[r["cluster"], r["ruta"], _f(r["latencia"])] for r in rutas["por_cluster"]],
-            [3.5 * cm, 9 * cm, 3 * cm]))
+            ["Clúster", "Ruta óptima (DP)", "f* (s)", "Ruta en uso", "Latencia (s)"],
+            [[r["cluster"], r["ruta_optima"], _f(r["latencia_optima"]), r["ruta"], _f(r["latencia"])]
+             for r in rutas["por_cluster"]],
+            [2.4 * cm, 4.9 * cm, 1.6 * cm, 4.9 * cm, 2.2 * cm]))
+        e.append(self._p(
+            f"Para evitar oscilaciones, la ruta en uso solo se reemplaza si deja de ser válida o si la óptima es al "
+            f"menos {rutas['umbral_cambio_ruta']:.0%} más rápida; por eso puede diferir ligeramente de la óptima."))
         motivos = ", ".join(f"{k}: {v}" for k, v in rutas["cambios_por_motivo"].items()) or "sin cambios"
         e.append(self._p(f"Cambios de ruta durante la simulación: {ind['cambios_ruta']} ({motivos})."))
 

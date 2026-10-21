@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ..modelos.colas import calcular_mmc, ley_de_little
-from .centro_datos import SimuladorCentroDatos
+from .centro_datos import UMBRAL_CAMBIO_RUTA, SimuladorCentroDatos
 
 
 def _ruta(ruta) -> str:
@@ -118,9 +118,16 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
         "rutas": {
             "tabla": tabla,
             "por_cluster": [
-                {"cluster": c.nombre, "ruta": _ruta(sim.rutas_actuales.get(c.nombre)), "latencia": sim.latencias_actuales.get(c.nombre)}
+                {
+                    "cluster": c.nombre,
+                    "ruta": _ruta(sim.rutas_actuales.get(c.nombre)),  # ruta en uso
+                    "latencia": sim.latencias_actuales.get(c.nombre),
+                    "ruta_optima": _ruta(sim.rutas_optimas.get(c.nombre)),  # resultado de la DP
+                    "latencia_optima": sim.latencias_optimas.get(c.nombre),
+                }
                 for c in sim.clusters
             ],
+            "umbral_cambio_ruta": UMBRAL_CAMBIO_RUTA,
             "cambios_por_motivo": motivos,
             "ultimos_cambios": [
                 {"t": c.t, "cluster": c.cluster, "anterior": _ruta(c.anterior), "nueva": _ruta(c.nueva), "motivo": c.motivo}
