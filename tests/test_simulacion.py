@@ -214,3 +214,16 @@ def test_resumen_muestra_una_mochila_representativa(simulador):
     elegidas = [a for a in destacada["articulos"] if a["elegida"]]
     caben = [a for a in destacada["articulos"] if a["peso"] <= destacada["capacidad"]]
     assert 2 <= len(elegidas) < len(caben)  # el modelo realmente tuvo que decidir
+
+
+def test_la_ia_recibe_el_estado_final_separado_de_los_maximos(simulador):
+    from datastream.reportes import analista_ia
+
+    resumen = construir_resumen(simulador)
+    final = resumen["clusters_al_final"]
+    assert len(final) == len(simulador.clusters) and "temperatura_al_final" in final[0]
+    assert resumen["termico"]["temperatura_maxima_observada"] >= max(c["temperatura_al_final"] for c in final)
+    # Las claves que las instrucciones mencionan deben existir en el JSON que recibe la IA.
+    enviado = analista_ia._resumen_para_ia(resumen)
+    for clave in ("clusters_al_final", "temperatura_maxima_observada", "temperatura_emergencia", "destacada"):
+        assert clave in analista_ia.INSTRUCCIONES_SISTEMA and f'"{clave}"' in enviado

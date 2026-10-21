@@ -168,14 +168,15 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
             ],
             "verificacion": verificacion,
         },
-        "clusters": [
+        # Estado de cada clúster AL FINAL de la simulación (los máximos están en "termico").
+        "clusters_al_final": [
             {
                 "nombre": c.nombre,
-                "servidores_activos": f"{c.servidores_activos}/{len(c.servidores)}",
-                "carga": c.carga,
-                "temperatura_max": c.temperatura_max,
-                "emergencia": c.en_emergencia,
-                "completadas": sum(s.completadas for s in c.servidores),
+                "servidores_activos_al_final": f"{c.servidores_activos}/{len(c.servidores)}",
+                "carga_al_final": c.carga,
+                "temperatura_al_final": c.temperatura_max,
+                "emergencia_al_final": c.en_emergencia,
+                "tareas_completadas": sum(s.completadas for s in c.servidores),
             }
             for c in sim.clusters
         ],

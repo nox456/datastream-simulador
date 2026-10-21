@@ -21,7 +21,11 @@ INSTRUCCIONES_SISTEMA = (
     "investigación de operaciones (programación dinámica, optimización no lineal, teoría de colas) "
     "y eficiencia energética. Analizas los resultados de un simulador académico de eventos discretos "
     "de la empresa DataStream Networks. Responde siempre en español, con un tono técnico y claro, "
-    "apoyándote en los números que recibes. No inventes datos que no estén en el resumen."
+    "apoyándote en los números que recibes. No inventes datos que no estén en el resumen. "
+    "Ten en cuenta que 'clusters_al_final' describe el estado al terminar la simulación, mientras que "
+    "'termico.temperatura_maxima_observada' es el máximo de toda la simulación; superar "
+    "'temperatura_emergencia' activa el enfriamiento de emergencia. En 'mochila.destacada' las tareas "
+    "con peso mayor que la capacidad libre no pueden elegirse."
 )
 
 FORMATO_RESPUESTA = """Redacta un informe ejecutivo de 450 a 650 palabras con exactamente estas secciones,
