@@ -190,3 +190,11 @@ def test_respuesta_cortada_de_la_ia_usa_el_analisis_local(simulador, monkeypatch
     monkeypatch.setattr(analista_ia.AnalistaDeepSeek, "__init__", iniciar)
     resultado = analista_ia.analizar_resultados(construir_resumen(simulador))
     assert resultado.fuente == "reglas locales" and "incompleta" in resultado.texto
+
+
+def test_resumen_incluye_el_hessiano_orlado(simulador):
+    verificacion = construir_resumen(simulador)["energia"]["verificacion"]
+    menores = verificacion["menores_hessiano_orlado"]
+    assert len(menores) == len(simulador.clusters) - 1  # órdenes 3 a n+1
+    assert [m > 0 for m in menores] == [i % 2 == 0 for i in range(len(menores))]  # +, −, +, …
+    assert verificacion["es_maximo"]

@@ -232,6 +232,13 @@ class GeneradorReportePDF:
             "λ* = √(Σa<sub>i</sub><super>2</super>) / (2√E<sub>max</sub>). "
             f"λ* final = {energia['multiplicador']:.4f}; residuo máximo de ∂L/∂E<sub>i</sub> = "
             f"{energia['verificacion']['max_residuo_dL_dEi']:.1e}."))
+        menores = energia["verificacion"]["menores_hessiano_orlado"]
+        if menores:
+            signos = ", ".join("+" if m > 0 else "−" for m in menores)
+            conclusion = "es un máximo" if energia["verificacion"]["es_maximo"] else "no cumple la condición de máximo"
+            e.append(self._p(
+                f"Condición de segundo orden (Hessiano orlado): los menores principales de orden 3 a "
+                f"{len(menores) + 2} tienen signos ({signos}); al alternar empezando por + el punto {conclusion}."))
         e.append(self._tabla(
             ["Clúster", "a_i", "E_i* (kW)", "R_i = a_i√E_i", "Factor de velocidad"],
             [[a["cluster"], _f(a["coeficiente"], 3), _f(a["energia"]), _f(a["rendimiento"], 3), f"×{a['factor_velocidad']:.2f}"]

@@ -76,6 +76,10 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
     analisis = sim.analisis_termico
     gradiente, lagrange = sim.ultimo_gradiente, sim.ultimo_lagrange
     verificacion = sim.asignador.verificar(lagrange, sim.ultimos_coeficientes)
+    hessiano = sim.asignador.hessiano_orlado(lagrange, sim.ultimos_coeficientes)
+    verificacion["menores_hessiano_orlado"] = hessiano["menores"]
+    verificacion["es_maximo"] = hessiano["es_maximo"]
+
 
     return {
         "generado": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

@@ -293,6 +293,21 @@ def demo_lagrange(config: Configuracion, presupuesto: float, coeficientes: Seque
           f"restricción = {verificacion['residuo_restriccion']:.2e}")
     print("Como ∂²R/∂E_i² = -a_i/(4·E_i^1.5) < 0, la función es cóncava y el punto es un máximo.")
 
+    hessiano = asignador.hessiano_orlado(resultado, coeficientes)
+    if hessiano["menores"]:
+        print("\nCondición de segundo orden · Hessiano orlado H = [[0, ∇g], [∇g, ∂²L/∂E_i∂E_j]]:")
+        for fila in hessiano["matriz"]:
+            print("   [" + "  ".join(f"{v:>11.3e}" for v in fila) + " ]")
+        imprimir_tabla(
+            ["Orden del menor", "Valor", "Signo requerido para máximo"],
+            [
+                [orden, f"{m:+.3e}", "+" if orden % 2 == 1 else "−"]
+                for orden, m in zip(range(3, len(hessiano["menores"]) + 3), hessiano["menores"])
+            ],
+        )
+        print("Los signos alternan (+, −, +, …): el punto es un MÁXIMO." if hessiano["es_maximo"]
+              else "Los signos NO alternan como se requiere: el punto no es un máximo.")
+
 
 def coeficientes_por_defecto(config: Configuracion, carga: float = 0.5) -> list[float]:
     """a_i que usaría la simulación con todos los servidores activos y carga uniforme."""

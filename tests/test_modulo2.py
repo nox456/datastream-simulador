@@ -139,3 +139,17 @@ def test_mm1_formulas_conocidas():
     assert m.lq == pytest.approx(4 / 3)
     assert m.w == pytest.approx(1.0)
     assert not calcular_mmc(5, 1, 3).estable
+
+
+def test_hessiano_orlado_confirma_el_maximo():
+    asignador, coeficientes = AsignadorEnergia(120), [0.18, 0.14, 0.21, 0.09]
+    hessiano = asignador.hessiano_orlado(asignador.asignar(coeficientes), coeficientes)
+    assert hessiano["matriz"].shape == (5, 5)
+    assert [m > 0 for m in hessiano["menores"]] == [True, False, True]  # +, −, +
+    assert hessiano["es_maximo"]
+
+
+def test_hessiano_orlado_ignora_clusteres_sin_energia():
+    asignador = AsignadorEnergia(50)
+    hessiano = asignador.hessiano_orlado(asignador.asignar([0.0, 0.3, 0.4]), [0.0, 0.3, 0.4])
+    assert hessiano["matriz"].shape == (3, 3) and hessiano["es_maximo"]
