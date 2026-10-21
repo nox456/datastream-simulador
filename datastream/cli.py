@@ -82,6 +82,19 @@ def _validar_nodos(config: Configuracion, nodos: list[str]) -> None:
             raise ErrorConfiguracion(f"El nodo '{nodo}' no existe. Nodos válidos: {', '.join(sorted(validos))}")
 
 
+def _validar_destino(config: Configuracion, destino: str | None, caidos: list[str]) -> None:
+    if destino is None:
+        return
+    gateway = config.etapas[0][0]
+    validos = {n for etapa in config.etapas[1:] for n in etapa}
+    if destino == gateway:
+        raise ErrorConfiguracion(f"El destino no puede ser el gateway {gateway} (es el origen de la ruta).")
+    if destino not in validos:
+        raise ErrorConfiguracion(f"El destino '{destino}' no existe. Nodos válidos: {', '.join(sorted(validos))}")
+    if destino in caidos:
+        raise ErrorConfiguracion(f"El destino '{destino}' está marcado como caído.")
+
+
 def _validar_cantidad(config: Configuracion, valores: list[float], nombre: str) -> None:
     if len(valores) != len(config.clusters):
         raise ErrorConfiguracion(f"Se esperaban {len(config.clusters)} {nombre} (uno por clúster) y se recibieron {len(valores)}.")
@@ -106,8 +119,9 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--velocidad", type=float, choices=VELOCIDADES, default=4, help="velocidad inicial del dashboard")
     p.add_argument("--sin-gui", action="store_true", help="ejecuta sin ventana y genera el reporte PDF")
 
-    p = sub.add_parser("ruta", help="módulo 1: tabla de programación dinámica de la ruta más corta")
+    p = sub.add_parser("ruta", help="módulo 1: tablas de programación dinámica de la ruta más corta")
     p.add_argument("--falla", action="append", default=[], metavar="NODO", help="nodo fuera de servicio (repetible)")
+    p.add_argument("--destino", metavar="NODO", help="destino de la recursión hacia atrás (por defecto el switch del primer clúster)")
 
     p = sub.add_parser("mochila", help="módulo 1: modelo de volumen-carga")
     p.add_argument("--capacidad", type=_numero_en_rango(int, 1, 200), default=16)
@@ -132,7 +146,8 @@ def ejecutar_comando(config: Configuracion, args: argparse.Namespace) -> int:
         return ejecutar_simulacion(config, args.sin_gui, args.velocidad)
     if args.comando == "ruta":
         _validar_nodos(config, args.falla)
-        consola.demo_ruta(config, args.falla)
+        _validar_destino(config, args.destino, args.falla)
+        consola.demo_ruta(config, args.falla, args.destino)
     elif args.comando == "mochila":
         consola.demo_mochila(config, args.capacidad, args.tareas, args.semilla)
     elif args.comando == "temperatura":
@@ -231,7 +246,10 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
                 texto = input("Nodos caídos separados por coma (Enter = ninguno): ").strip()
                 nodos = [n.strip() for n in texto.split(",") if n.strip()]
                 _validar_nodos(config, nodos)
-                consola.demo_ruta(config, nodos)
+                defecto = config.clusters[0].switch
+                destino = input(f"Destino de la recursión hacia atrás (Enter = {defecto}): ").strip() or None
+                _validar_destino(config, destino, nodos)
+                consola.demo_ruta(config, nodos, destino)
             elif opcion == "4":
                 capacidad = pedir_numero("Capacidad del servidor (CPU)", 1, 200, 16, entero=True)
                 tareas = pedir_numero("Cantidad de tareas en cola", 1, 60, 8, entero=True)

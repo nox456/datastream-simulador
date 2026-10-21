@@ -30,3 +30,23 @@ def test_ctrl_c_en_el_menu_no_se_trata_como_error(monkeypatch):
     monkeypatch.setattr("builtins.input", interrumpe)
     with pytest.raises(KeyboardInterrupt):
         cli.menu_interactivo(cargar_configuracion(), None)
+
+
+@pytest.mark.parametrize(
+    "argumentos",
+    [
+        ["ruta", "--destino", "GW"],  # el gateway es el origen
+        ["ruta", "--destino", "XX"],  # nodo inexistente
+        ["ruta", "--falla", "TR4", "--destino", "TR4"],  # destino caído
+    ],
+)
+def test_destino_invalido_de_la_recursion_hacia_atras(argumentos, capsys):
+    assert cli.main(argumentos) == 2
+    assert "Error de datos" in capsys.readouterr().err
+
+
+def test_ruta_muestra_ambas_recursiones(capsys):
+    assert cli.main(["ruta", "--destino", "TR4"]) == 0
+    salida = capsys.readouterr().out
+    assert "Recursión hacia adelante" in salida and "Recursión hacia atrás" in salida
+    assert "Ambas recursiones dan la misma latencia óptima." in salida

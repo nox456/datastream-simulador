@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 from typing import Sequence
 
@@ -9,7 +10,7 @@ from .configuracion import Configuracion
 from .modelos.mochila import Articulo, ModeloVolumenCarga
 from .modelos.presupuesto import AsignadorEnergia
 from .modelos.refrigeracion import OptimizadorRefrigeracion
-from .modelos.ruta_mas_corta import RutaMasCortaDP
+from .modelos.ruta_mas_corta import INFINITO, ResultadoHaciaAtras, ResultadoRutas, RutaMasCortaDP
 from .modelos.temperatura import ModeloTermico
 
 
@@ -32,8 +33,46 @@ def titulo(texto: str) -> None:
 # ---------------------------------------------------------------------- #
 # Módulo 1
 # ---------------------------------------------------------------------- #
-def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = ()) -> None:
-    titulo("MÓDULO 1 · Ruta más corta con programación dinámica (recursión hacia adelante)")
+def _numero(valor: float) -> str:
+    return f"{valor:.2f}" if valor != INFINITO else "inf"
+
+
+def _imprimir_hacia_adelante(resultado: ResultadoRutas) -> None:
+    filas = [
+        [
+            f.etapa,
+            f.nodo,
+            ", ".join(f"{c.desde}: {c.costo:.2f}" for c in f.candidatos) or "sin enlaces",
+            _numero(f.valor_optimo),
+            f.decision or "-",
+        ]
+        for f in resultado.tabla
+    ]
+    imprimir_tabla(["Etapa", "Nodo y", "Candidatos x: f(x)+d(x,y)", "f_k(y)", "Decisión x*"], filas)
+
+
+def _imprimir_hacia_atras(resultado: ResultadoHaciaAtras) -> None:
+    """Una tabla por etapa, empezando por la última, con el formato visto en clase."""
+    etapas = sorted({f.etapa for f in resultado.tabla}, reverse=True)
+    for etapa in etapas:
+        filas = [f for f in resultado.tabla if f.etapa == etapa]
+        print(f"\nEtapa {etapa}:  f_{etapa}(x_{etapa}) = min {{ d(x_{etapa}, x_{etapa + 1}) + f_{etapa + 1}(x_{etapa + 1}) }}")
+        imprimir_tabla(
+            [f"x_{etapa}", f"Candidatos x_{etapa + 1}: d + f_{etapa + 1}", f"f_{etapa}(x_{etapa})", f"x_{etapa + 1}*"],
+            [
+                [
+                    f.nodo,
+                    ", ".join(f"{c.hacia}: {c.costo:.2f}" for c in f.candidatos) or "sin enlaces",
+                    _numero(f.valor_optimo),
+                    f.decision or "-",
+                ]
+                for f in filas
+            ],
+        )
+
+
+def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = (), destino: str | None = None) -> None:
+    titulo("MÓDULO 1 · Ruta más corta con programación dinámica")
     etapas = [list(e) for e in config.etapas]
     caidos = set(nodos_caidos)
     arcos = {
@@ -43,19 +82,26 @@ def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = ()) -> None:
     }
     if caidos:
         print(f"Nodos fuera de servicio: {', '.join(sorted(caidos))}")
-    print("f_0(GW) = 0 ;  f_k(y) = min_x { f_(k-1)(x) + d(x, y) }   (latencias base, en segundos)\n")
-    resultado = RutaMasCortaDP(etapas).resolver(arcos)
-    filas = [
-        [
-            f.etapa,
-            f.nodo,
-            ", ".join(f"{c.desde}: {c.costo:.2f}" for c in f.candidatos) or "sin enlaces",
-            f"{f.valor_optimo:.2f}" if f.valor_optimo != float("inf") else "inf",
-            f.decision or "-",
-        ]
-        for f in resultado.tabla
-    ]
-    imprimir_tabla(["Etapa", "Nodo y", "Candidatos x: f(x)+d(x,y)", "f_k(y)", "Decisión x*"], filas)
+    modelo = RutaMasCortaDP(etapas)
+
+    print("\n1) Recursión hacia adelante (desde el gateway hacia todos los nodos, latencias base en s):")
+    print("   f_0(GW) = 0 ;  f_k(y) = min_x { f_(k-1)(x) + d(x, y) }\n")
+    resultado = modelo.resolver(arcos)
+    _imprimir_hacia_adelante(resultado)
+
+    destino = destino or config.clusters[0].switch
+    print(f"\n2) Recursión hacia atrás (desde el destino {destino} hasta el gateway):")
+    print(f"   f_n({destino}) = 0 ;  f_i(x_i) = min {{ d(x_i, x_(i+1)) + f_(i+1)(x_(i+1)) }}")
+    atras = modelo.resolver_hacia_atras(arcos, destino)
+    _imprimir_hacia_atras(atras)
+    ruta_atras = atras.ruta()
+    ruta_adelante = resultado.ruta_hacia(destino)
+    print(f"\nRuta hacia atrás:    {' > '.join(ruta_atras or ['inalcanzable'])}  ·  f = {_numero(atras.latencia)}")
+    print(f"Ruta hacia adelante: {' > '.join(ruta_adelante or ['inalcanzable'])}  ·  f = {_numero(resultado.latencia_hacia(destino))}")
+    if ruta_atras and ruta_adelante:
+        iguales = math.isclose(atras.latencia, resultado.latencia_hacia(destino))
+        print("Ambas recursiones dan la misma latencia óptima." if iguales else "ATENCIÓN: las recursiones no coinciden.")
+
     print("\nPolítica óptima (ruta reconstruida desde cada destino):")
     imprimir_tabla(
         ["Clúster", "Switch", "Ruta", "Latencia (s)"],
@@ -64,7 +110,7 @@ def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = ()) -> None:
                 c.nombre,
                 c.switch,
                 " > ".join(resultado.ruta_hacia(c.switch) or ["inalcanzable"]),
-                f"{resultado.latencia_hacia(c.switch):.2f}",
+                _numero(resultado.latencia_hacia(c.switch)),
             ]
             for c in config.clusters
         ],

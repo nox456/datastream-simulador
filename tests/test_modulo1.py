@@ -99,3 +99,34 @@ def test_mochila_validaciones():
         ModeloVolumenCarga().resolver([Articulo("x", 1, -1)], 5)
     with pytest.raises(ValueError):
         ModeloVolumenCarga().resolver([], -1)
+
+
+# ---------------------------------------------------------------- recursión hacia atrás
+def test_recursion_hacia_atras_en_la_red_de_prueba():
+    resultado = RutaMasCortaDP(ETAPAS).resolver_hacia_atras(ARCOS, "F")
+    assert resultado.ruta() == ["A", "C", "D", "F"] and resultado.latencia == pytest.approx(6.0)
+    assert resultado.valores["C"] == pytest.approx(2.0)  # C→D→F
+    assert [f.etapa for f in resultado.tabla] == [3, 3, 2, 2, 1]  # se calcula desde la última etapa
+
+
+@pytest.mark.parametrize("semilla", range(10))
+def test_ambas_recursiones_coinciden(semilla):
+    azar = random.Random(semilla)
+    etapas = [["O"], ["A", "B", "C"], ["D", "E"], ["F", "G", "H"], ["Z"]]
+    arcos = {
+        (x, y): azar.uniform(0.1, 10)
+        for k in range(len(etapas) - 1)
+        for x in etapas[k]
+        for y in etapas[k + 1]
+        if azar.random() < 0.8
+    }
+    dp = RutaMasCortaDP(etapas)
+    adelante, atras = dp.resolver(arcos), dp.resolver_hacia_atras(arcos, "Z")
+    assert atras.latencia == pytest.approx(adelante.latencia_hacia("Z"))
+    if atras.ruta():
+        assert sum(arcos[t] for t in zip(atras.ruta(), atras.ruta()[1:])) == pytest.approx(atras.latencia)
+
+
+def test_destino_inexistente_en_recursion_hacia_atras():
+    with pytest.raises(ValueError):
+        RutaMasCortaDP(ETAPAS).resolver_hacia_atras(ARCOS, "Z")
