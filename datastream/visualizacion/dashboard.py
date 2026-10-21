@@ -19,6 +19,7 @@ from ..reportes.servicio import DIRECTORIO_REPORTES, generar_reporte  # noqa: E4
 from ..simulacion.centro_datos import SimuladorCentroDatos  # noqa: E402
 from ..simulacion.resumen import construir_resumen  # noqa: E402
 from . import tema  # noqa: E402
+from .boton import BarraBotones  # noqa: E402
 from .graficos import grafico_barras, grafico_lineas  # noqa: E402
 from .panel_topologia import PanelTopologia  # noqa: E402
 
@@ -49,6 +50,23 @@ class Dashboard:
         self.rect_gradiente = pygame.Rect(890, 68, 538, 270)
         self.rect_lagrange = pygame.Rect(890, 346, 538, 270)
         self.rect_termico = pygame.Rect(890, 624, 538, 268)
+        self.barra = self._crear_botones()
+        self._mouse: tuple[float, float] | None = None  # posición del mouse en coordenadas del lienzo
+
+    def _crear_botones(self) -> BarraBotones:
+        """Botones clicables equivalentes a las teclas (el teclado sigue funcionando igual)."""
+        barra = BarraBotones(pygame.Rect(14, 38, 866, 24))
+        barra.agregar(lambda: "Reanudar [Espacio]" if self.pausado else "Pausa [Espacio]", self._alternar_pausa)
+        barra.agregar("Velocidad − [-]", lambda: self._cambiar_velocidad(-1))
+        barra.agregar("Velocidad + [+]", lambda: self._cambiar_velocidad(+1))
+        # La fuente por defecto de pygame no tiene flechas (↑↓): se escriben con palabras.
+        barra.agregar("Tasa − [Abajo]", lambda: self._cambiar_tasa(-PASO_TASA))
+        barra.agregar("Tasa + [Arriba]", lambda: self._cambiar_tasa(PASO_TASA))
+        barra.agregar("Falla [F]", self._inyectar_falla)
+        barra.agregar("Reporte PDF [R]", self._iniciar_reporte)
+        barra.agregar("Salir [Esc]", self._salir)
+        barra.distribuir(self.fuentes)
+        return barra
 
     @staticmethod
     def _tamano_ventana() -> tuple[int, int]:
@@ -102,17 +120,31 @@ class Dashboard:
                 self.activo = False
             elif evento.type == pygame.KEYDOWN:
                 self._procesar_tecla(evento)
+            elif evento.type == pygame.MOUSEMOTION:
+                self._mouse = self._a_lienzo(evento.pos)
+            elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:  # clic izquierdo
+                self._procesar_clic(self._a_lienzo(evento.pos))
+
+    def _a_lienzo(self, posicion: tuple[int, int]) -> tuple[float, float]:
+        """Convierte una posición de la ventana (que puede estar escalada) a coordenadas del lienzo."""
+        ancho, alto = self.ventana.get_size()
+        return posicion[0] * ANCHO / ancho, posicion[1] * ALTO / alto
+
+    def _procesar_clic(self, punto: tuple[float, float]) -> None:
+        boton = self.barra.boton_en(punto)
+        if boton is not None:
+            boton.pulsar()
+            return
+        indice = self.topologia.cluster_en(punto)  # clic sobre el recuadro de un clúster
+        if indice is not None:
+            self._seleccionar_cluster(indice)
 
     def _procesar_tecla(self, evento: pygame.event.Event) -> None:
         tecla = evento.key
         if tecla in (pygame.K_ESCAPE, pygame.K_q):
-            self.activo = False
+            self._salir()
         elif tecla == pygame.K_SPACE:
-            if self.sim.terminado:
-                self.notificar("La simulación ya terminó; no se puede reanudar")
-            else:
-                self.pausado = not self.pausado
-                self.notificar("Simulación en pausa" if self.pausado else "Simulación reanudada")
+            self._alternar_pausa()
         elif tecla in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
             self._cambiar_velocidad(+1)
         elif tecla in (pygame.K_MINUS, pygame.K_KP_MINUS):
@@ -120,17 +152,29 @@ class Dashboard:
         elif tecla in (pygame.K_UP, pygame.K_DOWN):
             self._cambiar_tasa(PASO_TASA if tecla == pygame.K_UP else -PASO_TASA)
         elif pygame.K_1 <= tecla <= pygame.K_9:
-            indice = tecla - pygame.K_1
-            if self.topologia.seleccionar_cluster(indice):
-                self.notificar(f"Mostrando la ruta óptima hacia {self.sim.clusters[indice].nombre}")
-            else:
-                self.notificar(f"No existe el clúster {indice + 1} (hay {len(self.sim.clusters)})")
+            self._seleccionar_cluster(tecla - pygame.K_1)
         elif tecla == pygame.K_f:
             self._inyectar_falla()
         elif tecla == pygame.K_r:
             self._iniciar_reporte()
         elif evento.unicode and evento.unicode.isprintable():
-            self.notificar(f"Comando '{evento.unicode}' no reconocido · revise la barra de controles")
+            self.notificar(f"Comando '{evento.unicode}' no reconocido · use los botones o las teclas indicadas")
+
+    def _salir(self) -> None:
+        self.activo = False
+
+    def _alternar_pausa(self) -> None:
+        if self.sim.terminado:
+            self.notificar("La simulación ya terminó; no se puede reanudar")
+            return
+        self.pausado = not self.pausado
+        self.notificar("Simulación en pausa" if self.pausado else "Simulación reanudada")
+
+    def _seleccionar_cluster(self, indice: int) -> None:
+        if self.topologia.seleccionar_cluster(indice):
+            self.notificar(f"Mostrando la ruta óptima hacia {self.sim.clusters[indice].nombre}")
+        else:
+            self.notificar(f"No existe el clúster {indice + 1} (hay {len(self.sim.clusters)})")
 
     def _cambiar_velocidad(self, direccion: int) -> None:
         nuevo = self.indice_velocidad + direccion
@@ -200,14 +244,7 @@ class Dashboard:
     def _dibujar_encabezado(self) -> None:
         f = self.fuentes
         f.texto(self.lienzo, "DataStream Networks · Simulador de optimización del centro de datos", (14, 10), 28, tema.TEXTO, True)
-        f.texto(
-            self.lienzo,
-            "[Espacio] pausa   [+/-] velocidad   [Flechas] tasa de llegada   [1-4] ruta de clúster   "
-            "[F] inyectar falla   [R] reporte PDF + IA   [Esc] salir",
-            (14, 42),
-            16,
-            tema.TEXTO_SUAVE,
-        )
+        self.barra.dibujar(self.lienzo, f, self._mouse)
         if self.sim.terminado:
             estado, color = "FINALIZADA", tema.AZUL
         elif self.pausado:

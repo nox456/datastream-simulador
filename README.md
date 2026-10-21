@@ -64,15 +64,18 @@ Cada módulo matemático también se puede ejecutar **de forma independiente** p
 
 ### Controles del dashboard
 
-| Tecla | Acción |
-|---|---|
-| `Espacio` | Pausar / reanudar |
-| `+` / `-` | Velocidad de la simulación (×0.5 a ×32) |
-| `↑` / `↓` | Aumentar / disminuir la tasa de llegada de tareas (0.5 a 20 tareas/s) |
-| `1` … `4` | Resaltar la ruta óptima hacia ese clúster |
-| `F` | Inyectar una falla en un router al azar (para ver el reenrutamiento) |
-| `R` | Generar el reporte PDF con análisis de IA (incluye una captura del dashboard) |
-| `Esc` | Salir |
+Cada acción se puede hacer **con el teclado o con el mouse**: los botones del encabezado muestran su tecla
+equivalente, y un clic sobre el recuadro de un clúster resalta su ruta.
+
+| Tecla | Botón / clic | Acción |
+|---|---|---|
+| `Espacio` | `Pausa` / `Reanudar` | Pausar / reanudar |
+| `+` / `-` | `Velocidad +` / `Velocidad −` | Velocidad de la simulación (×0.5 a ×32) |
+| `↑` / `↓` | `Tasa +` / `Tasa −` | Aumentar / disminuir la tasa de llegada de tareas (0.5 a 20 tareas/s) |
+| `1` … `4` | Clic en el recuadro del clúster | Resaltar la ruta óptima hacia ese clúster |
+| `F` | `Falla` | Inyectar una falla en un router al azar (para ver el reenrutamiento) |
+| `R` | `Reporte PDF` | Generar el reporte PDF con análisis de IA (incluye una captura del dashboard) |
+| `Esc` | `Salir` | Salir |
 
 ## Arquitectura
 
@@ -258,10 +261,10 @@ datos por defecto.
 python -m pytest
 ```
 
-110 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
+117 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
 recursión hacia adelante comparada con la recursión hacia atrás, la mochila comparada con fuerza bruta, los puntos
 estacionarios analíticos, el gradiente comparado con diferencias finitas y con el óptimo analítico, las condiciones de
 Lagrange, el Hessiano orlado y el precio sombra, las fórmulas M/M/1, la pérdida de paquetes cuando un nodo cae durante
-el viaje, la validación de la configuración y de los comandos, el menú interactivo, la respuesta ante errores de la API
+el viaje, la validación de la configuración y de los comandos, el menú interactivo, los botones del dashboard, la respuesta ante errores de la API
 de IA y varias invariantes de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y
 reproducibilidad con la misma semilla).

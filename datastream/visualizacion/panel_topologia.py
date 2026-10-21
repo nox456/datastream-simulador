@@ -82,6 +82,16 @@ class PanelTopologia:
             return True
         return False
 
+    def _marco_cluster(self, indice: int) -> pygame.Rect:
+        """Recuadro del clúster en la parte inferior del panel (se usa para dibujar y para los clics)."""
+        ancho = (self.rect.width - 80) / len(self.sim.clusters)
+        x = self.rect.x + 40 + ancho * indice
+        return pygame.Rect(x + 4, self.rect.bottom - 64, ancho - 8, 40)
+
+    def cluster_en(self, punto: tuple[float, float]) -> int | None:
+        """Índice del clúster cuyo recuadro contiene el punto, o None."""
+        return next((i for i in range(len(self.sim.clusters)) if self._marco_cluster(i).collidepoint(punto)), None)
+
     def actualizar(self, tiempo_real: float) -> None:
         """Detecta cambios de ruta nuevos para resaltarlos."""
         cambios = self.sim.cambios_ruta
@@ -217,13 +227,11 @@ class PanelTopologia:
         )
 
     def _dibujar_clusters(self, superficie: pygame.Surface) -> None:
-        ancho = (self.rect.width - 80) / len(self.sim.clusters)
         y = self.rect.bottom - 60
         for i, cluster in enumerate(self.sim.clusters):
             color = COLORES_CLUSTER[i % len(COLORES_CLUSTER)]
-            x = self.rect.x + 40 + ancho * i
             seleccionado = i == self.cluster_seleccionado
-            marco = pygame.Rect(x + 4, y - 4, ancho - 8, 40)
+            marco = self._marco_cluster(i)
             pygame.draw.rect(superficie, color, marco, 2 if seleccionado else 1, border_radius=6)
             titulo = cluster.nombre + ("  [EMERGENCIA]" if cluster.en_emergencia else "")
             self.fuentes.texto(superficie, titulo, (marco.centerx, y), 16, ROJO if cluster.en_emergencia else color,
