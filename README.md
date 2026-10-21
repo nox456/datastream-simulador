@@ -54,11 +54,13 @@ Cada módulo matemático también se puede ejecutar **de forma independiente** p
 
 | Comando | Qué muestra |
 |---|---|
-| `python main.py ruta [--falla CR1]` | Tabla completa de la recursión de programación dinámica y la ruta óptima a cada clúster |
+| `python main.py ruta [--falla CR1] [--destino TR4]` | Tablas de la recursión hacia adelante y hacia atrás, y la ruta óptima a cada clúster |
+| `python main.py ruta --ejemplo-clase` | Ejemplo de clase de las 7 ciudades (1 → 4 → 5 → 7, 21 km) por ambas recursiones |
 | `python main.py mochila [--capacidad 12 --tareas 8]` | Modelo de volumen-carga con la tabla `f_i(w)` y las tareas elegidas |
+| `python main.py mochila --ejemplo-clase` | Ejemplo de clase del barco de 4 t (varias unidades por artículo, $62.000) |
 | `python main.py temperatura [--emergencia 80]` | `T(x)`, `T'(x)`, `T''(x)`, puntos estacionarios, inflexión y punto crítico |
 | `python main.py gradiente [--cargas 0.9,0.5,0.2,0.7]` | Iteraciones del método de gradiente hasta converger |
-| `python main.py lagrange [--presupuesto 150]` | Lagrangiano, derivadas parciales, `λ*` y reparto óptimo de energía |
+| `python main.py lagrange [--presupuesto 150]` | Lagrangiano, derivadas parciales, `λ*`, reparto óptimo de energía y Hessiano orlado |
 
 ### Controles del dashboard
 
@@ -125,7 +127,15 @@ f_k(y)  = min { f_(k-1)(x) + d(x, y) }   para todo x de la etapa k-1
 promedio móvil de paquetes en el enlace. Los nodos caídos se excluyen. La ruta se recalcula cada segundo; si cambia por
 congestión o por una falla, el dashboard la resalta (ruta vieja en rojo discontinuo y nueva en amarillo) y lo anota en
 la bitácora. Para evitar oscilaciones, la ruta en uso solo se reemplaza si deja de ser válida o si la óptima es al menos
-8 % más rápida.
+8 % más rápida (el reporte muestra ambas: la óptima de la DP y la ruta en uso).
+
+En la consola también se resuelve con la **recursión hacia atrás**, la forma preferida en la literatura, hacia un
+destino fijo. Ambas dan la misma ruta y la misma latencia:
+
+```
+f_n(destino) = 0
+f_i(x_i)     = min { d(x_i, x_(i+1)) + f_(i+1)(x_(i+1)) }
+```
 
 ### Modelo de volumen-carga (mochila 0/1)
 
@@ -140,6 +150,14 @@ f_i(w) = max{ f_(i-1)(w),  v_i + f_(i-1)(w - w_i) }    (si w_i <= w)
 - `v_i = prioridad · cpu · (1 + espera / espera_máxima)`: valor con bonificación por antigüedad para evitar la inanición.
 
 Los servidores en emergencia térmica no reciben tareas nuevas (protección térmica).
+
+Cada tarea es única, por eso la simulación usa la mochila 0/1. El modelo general visto en clase, con varias unidades por
+artículo, también está implementado (`ModeloMochilaUnidades`, recursión hacia atrás); la versión 0/1 es su caso
+particular `m_i ∈ {0, 1}`:
+
+```
+f_i(x_i) = max { r_i·m_i + f_(i+1)(x_i − w_i·m_i) },   m_i = 0, 1, …, ⌊x_i / w_i⌋
+```
 
 ## Módulo 2 · Optimización no lineal
 
@@ -181,6 +199,10 @@ L = Σ a_i·√E_i − λ(Σ E_i − E_max)
 `a_i = eficiencia · (capacidad activa / capacidad total) · (carga base + carga actual)`. `λ*` es el precio sombra: el
 rendimiento que daría un kW adicional. La energía asignada cambia la velocidad de proceso del clúster (`∝ √E_i`).
 
+Condición de segundo orden: en el **Hessiano orlado** (la fila y columna de la restricción más
+`∂²L/∂E_i² = −a_i / (4·E_i^1.5)`), los menores principales de orden 3, 4, …, n+1 alternan de signo empezando por `+`,
+lo que confirma que el punto es un **máximo**.
+
 ## Módulo 3 · Simulación, visualización e IA
 
 **SimPy** (`simulacion/centro_datos.py`):
@@ -194,8 +216,8 @@ rendimiento que daría un kW adicional. La energía asignada cambia la velocidad
 coloreados por congestión, los nodos caídos y la ruta seleccionada; aviso visual de cada cambio de ruta; gráficos en
 tiempo real de los ventiladores (gradiente), la energía y `λ*` (Lagrange), y la curva térmica con los servidores encima.
 
-**IA y PDF** (`reportes/`): el reporte incluye indicadores, la tabla de la recursión de DP, la última mochila
-resuelta, los puntos estacionarios, gráficas de matplotlib, la bitácora y un **análisis ejecutivo generado con la API de
+**IA y PDF** (`reportes/`): el reporte incluye indicadores, la tabla de la recursión de DP, la ruta óptima y la ruta en
+uso de cada clúster, una mochila representativa, los puntos estacionarios, el Hessiano orlado, gráficas de matplotlib, la bitácora y un **análisis ejecutivo generado con la API de
 DeepSeek** (`deepseek-chat` a través del SDK oficial `openai`, compatible con la API de DeepSeek). Si no hay clave o la API falla, se usa un análisis
 local basado en reglas. En [`docs/reporte_ejemplo.pdf`](docs/reporte_ejemplo.pdf) hay un ejemplo generado con los
 datos por defecto.
@@ -223,8 +245,10 @@ datos por defecto.
   suman 1, tareas más grandes que el servidor más pequeño. La función térmica solo acepta `x`, números, operadores y
   `exp, log, sqrt, sin, cos, tanh`.
 - **Comandos:** cada argumento se valida con rangos (`--tasa 99` → error claro), las listas deben tener un valor por
-  clúster y los nodos que se marcan como caídos deben existir (el gateway no puede fallar).
-- **Menú interactivo:** vuelve a pedir el dato hasta que sea válido, y Enter acepta el valor por defecto.
+  clúster y los nodos que se marcan como caídos deben existir (el gateway no puede fallar). El destino de la recursión
+  hacia atrás debe existir, no puede ser el gateway ni estar caído.
+- **Menú interactivo:** vuelve a pedir el dato hasta que sea válido, y Enter acepta el valor por defecto. Un error
+  inesperado se informa sin cerrar el menú.
 - **Dashboard:** límites de velocidad y de tasa de llegada, clúster inexistente, teclas no reconocidas y reportes
   simultáneos.
 
@@ -234,7 +258,10 @@ datos por defecto.
 python -m pytest
 ```
 
-66 pruebas, entre ellas: la DP comparada con casos conocidos, la mochila comparada con fuerza bruta, los puntos
+110 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
+recursión hacia adelante comparada con la recursión hacia atrás, la mochila comparada con fuerza bruta, los puntos
 estacionarios analíticos, el gradiente comparado con diferencias finitas y con el óptimo analítico, las condiciones de
-Lagrange y el precio sombra, las fórmulas M/M/1, la validación de la configuración y varias invariantes de la simulación
-(conservación de tareas, capacidad nunca excedida, presupuesto respetado y reproducibilidad con la misma semilla).
+Lagrange, el Hessiano orlado y el precio sombra, las fórmulas M/M/1, la pérdida de paquetes cuando un nodo cae durante
+el viaje, la validación de la configuración y de los comandos, el menú interactivo, la respuesta ante errores de la API
+de IA y varias invariantes de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y
+reproducibilidad con la misma semilla).
