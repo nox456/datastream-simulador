@@ -164,6 +164,10 @@ class GeneradorReportePDF:
                 f"{little['lambda_por_W']:.1f} (diferencia relativa {little['error_relativo']:.1%}). "
                 "La simulación agrega efectos que el modelo M/M/c no captura: tránsito por la red, "
                 "despacho por lotes, fallas y hora pico."))
+            e.append(self._p(
+                f"Por eso la espera observada ({ind['espera_promedio']:.2f} s, desde la llegada hasta el inicio del "
+                "proceso) es mayor que la del modelo: incluye el viaje del paquete por la red y la espera hasta el "
+                "siguiente ciclo de despacho, además de los picos de demanda en los que la cola sí crece."))
 
         # 2. Módulo 1
         e.append(Spacer(1, 8))
