@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from . import consola
 from .configuracion import Configuracion, ErrorConfiguracion, cargar_configuracion, cargar_variables_entorno
+from .modelos.presupuesto import METODOS_LAGRANGE
 
 VELOCIDADES = [0.5, 1, 2, 4, 8, 16, 32]
 ALGORITMOS_CLI = ["etapas", "bellman-ford"]
@@ -125,6 +126,7 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--velocidad", type=float, choices=VELOCIDADES, default=4, help="velocidad inicial del dashboard")
     p.add_argument("--sin-gui", action="store_true", help="ejecuta sin ventana y genera el reporte PDF")
     p.add_argument("--algoritmo", choices=ALGORITMOS_CLI, help="algoritmo de rutas (por defecto el de la configuración)")
+    p.add_argument("--lagrange", choices=METODOS_LAGRANGE, help="método para el reparto de energía (por defecto el de la configuración)")
 
     p = sub.add_parser("ruta", help="módulo 1: tablas de programación dinámica de la ruta más corta")
     p.add_argument("--falla", action="append", default=[], metavar="NODO", help="nodo fuera de servicio (repetible)")
@@ -147,13 +149,14 @@ def construir_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("lagrange", help="módulo 2: reparto del presupuesto eléctrico")
     p.add_argument("--presupuesto", type=_numero_en_rango(float, 1, 100_000), help="energía total disponible (kW)")
     p.add_argument("--coeficientes", type=_lista_numeros(0, 100), help="coeficientes a_i por clúster")
+    p.add_argument("--metodo", choices=METODOS_LAGRANGE, help="analitico (fórmula), simbolico (sp.solve) o numerico (SciPy)")
     return parser
 
 
 def ejecutar_comando(config: Configuracion, args: argparse.Namespace) -> int:
     if args.comando == "simular":
         config = config.con_cambios(duracion=args.duracion, semilla=args.semilla, tasa_llegada=args.tasa)
-        config = config.con_algoritmo(_algoritmo_interno(args.algoritmo))
+        config = config.con_algoritmo(_algoritmo_interno(args.algoritmo)).con_metodo_lagrange(args.lagrange)
         return ejecutar_simulacion(config, args.sin_gui, args.velocidad)
     if args.comando == "ruta":
         if args.ejemplo_clase:
@@ -183,7 +186,9 @@ def ejecutar_comando(config: Configuracion, args: argparse.Namespace) -> int:
         _validar_cantidad(config, coeficientes, "coeficientes")
         if sum(coeficientes) == 0:
             raise ErrorConfiguracion("Al menos un coeficiente a_i debe ser mayor que cero.")
-        consola.demo_lagrange(config, args.presupuesto or config.energia.presupuesto_total, coeficientes)
+        consola.demo_lagrange(
+            config, args.presupuesto or config.energia.presupuesto_total, coeficientes, args.metodo or config.energia.metodo
+        )
     return 0
 
 
@@ -225,16 +230,27 @@ def pedir_lista(mensaje: str, cantidad: int, minimo: float, maximo: float, defec
             return valores
 
 
-def pedir_algoritmo(config: Configuracion) -> str:
-    """Pide el algoritmo de rutas hasta que sea válido. Enter conserva el de la configuración."""
-    actual = config.algoritmo_rutas.replace("_", "-")
+def pedir_opcion(mensaje: str, opciones: Sequence[str], defecto: str) -> str:
+    """Pide una de varias opciones de texto hasta que sea válida. Enter acepta el valor por defecto."""
+    lista = " o ".join([", ".join(opciones[:-1]), opciones[-1]]) if len(opciones) > 1 else opciones[0]
     while True:
-        texto = input(f"Algoritmo de rutas: etapas o bellman-ford (Enter = {actual}): ").strip().lower()
+        texto = input(f"{mensaje}: {lista} (Enter = {defecto}): ").strip().lower()
         if not texto:
-            return config.algoritmo_rutas
-        if texto in ALGORITMOS_CLI:
-            return _algoritmo_interno(texto)
-        print("  ✗ Escriba 'etapas' o 'bellman-ford'.")
+            return defecto
+        if texto in opciones:
+            return texto
+        print("  ✗ Escriba " + " o ".join([", ".join(f"'{o}'" for o in opciones[:-1]), f"'{opciones[-1]}'"]) + ".")
+
+
+def pedir_algoritmo(config: Configuracion) -> str:
+    """Pide el algoritmo de rutas. Enter conserva el de la configuración."""
+    actual = config.algoritmo_rutas.replace("_", "-")
+    return _algoritmo_interno(pedir_opcion("Algoritmo de rutas", ALGORITMOS_CLI, actual))
+
+
+def pedir_metodo_lagrange(config: Configuracion) -> str:
+    """Pide el método para resolver Lagrange. Enter conserva el de la configuración."""
+    return pedir_opcion("Método de Lagrange", METODOS_LAGRANGE, config.energia.metodo)
 
 
 def pedir_si_no(mensaje: str, defecto: bool = True) -> bool:
@@ -275,7 +291,12 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
                 semilla = pedir_numero("Semilla aleatoria", 0, 2**31 - 1, config.simulacion.semilla, entero=True)
                 tasa = pedir_numero("Tasa de llegada base (tareas/s)", 0.5, 20, config.simulacion.tasa_llegada)
                 algoritmo = pedir_algoritmo(config)
-                ajustada = config.con_cambios(duracion=duracion, semilla=semilla, tasa_llegada=tasa).con_algoritmo(algoritmo)
+                metodo = pedir_metodo_lagrange(config)
+                ajustada = (
+                    config.con_cambios(duracion=duracion, semilla=semilla, tasa_llegada=tasa)
+                    .con_algoritmo(algoritmo)
+                    .con_metodo_lagrange(metodo)
+                )
                 ejecutar_simulacion(ajustada, sin_gui=opcion == "2", velocidad=4)
             elif opcion == "3":
                 ajustada = config.con_algoritmo(pedir_algoritmo(config))
@@ -306,7 +327,7 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
                 coeficientes = pedir_lista("Coeficientes a_i", len(config.clusters), 0, 100, defecto)
                 if sum(coeficientes) == 0:
                     raise ErrorConfiguracion("Al menos un coeficiente a_i debe ser mayor que cero.")
-                consola.demo_lagrange(config, presupuesto, coeficientes)
+                consola.demo_lagrange(config, presupuesto, coeficientes, pedir_metodo_lagrange(config))
             elif opcion == "8":
                 ruta = Path(input("Ruta del archivo JSON: ").strip().strip('"'))
                 config, ruta_config = cargar_configuracion(ruta), ruta

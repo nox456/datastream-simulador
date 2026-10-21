@@ -49,6 +49,7 @@ python main.py simular --sin-gui      # simula sin ventana y genera el reporte P
 python main.py simular --duracion 300 --tasa 5 --semilla 7 --velocidad 8
 python main.py --config mi_red.json simular   # usar otra configuración
 python main.py simular --algoritmo bellman-ford                        # rutas con Bellman-Ford en vez de DP por etapas
+python main.py simular --lagrange numerico                             # reparto de energía con SciPy (o simbolico con sympy)
 python main.py --config datos/configuracion_bellman_ford.json simular  # red con enlaces laterales (solo Bellman-Ford)
 ```
 
@@ -63,7 +64,7 @@ Cada módulo matemático también se puede ejecutar **de forma independiente** p
 | `python main.py mochila --ejemplo-clase` | Ejemplo de clase del barco de 4 t (varias unidades por artículo, $62.000) |
 | `python main.py temperatura [--emergencia 80]` | `T(x)`, `T'(x)`, `T''(x)`, puntos estacionarios, inflexión y punto crítico |
 | `python main.py gradiente [--cargas 0.9,0.5,0.2,0.7]` | Iteraciones del método de gradiente hasta converger |
-| `python main.py lagrange [--presupuesto 150]` | Lagrangiano, derivadas parciales, `λ*`, reparto óptimo de energía y Hessiano orlado |
+| `python main.py lagrange [--presupuesto 150] [--metodo simbolico]` | Lagrangiano, derivadas parciales, `λ*`, reparto óptimo de energía y Hessiano orlado; con `--metodo` se resuelve con `sp.solve` o con SciPy y se compara con la fórmula |
 
 ### Controles del dashboard
 
@@ -98,7 +99,7 @@ datastream/
     mochila.py                modelo de volumen-carga
     temperatura.py            análisis con derivadas (sympy)
     refrigeracion.py          método de gradiente
-    presupuesto.py            multiplicadores de Lagrange
+    presupuesto.py            multiplicadores de Lagrange (analítico, sp.solve o SciPy)
     colas.py                  referencia M/M/c y ley de Little
   simulacion/               casos de uso en el tiempo (SimPy)
     centro_datos.py           procesos: llegadas, despacho, tránsito, proceso, fallas, control
@@ -227,6 +228,17 @@ Condición de segundo orden: en el **Hessiano orlado** (la fila y columna de la 
 `∂²L/∂E_i² = −a_i / (4·E_i^1.5)`), los menores principales de orden 3, 4, …, n+1 alternan de signo empezando por `+`,
 lo que confirma que el punto es un **máximo**.
 
+#### Tres métodos para resolver el reparto
+
+| Método | Cómo se obtiene `E_i*` |
+|---|---|
+| `analitico` (por defecto) | La fórmula `E_i* = E_max·a_i²/Σa_j²`, despejada a mano de `∇L = 0` |
+| `simbolico` | `sp.solve` resuelve `∇L = 0` con coeficientes **simbólicos** (`a_1 … a_n`, `E_max`) y deduce la misma fórmula; se resuelve una sola vez (unos segundos) y luego se evalúa al instante en cada ciclo |
+| `numerico` | SciPy (`minimize`, método SLSQP) maximiza `R(E)` directamente con la restricción `Σ E_i = E_max`, sin usar la fórmula; `λ*` se obtiene de `∂R/∂E_i` en el óptimo |
+
+Los tres dan el mismo reparto (el numérico, con un error menor a 10⁻⁴). Se elige con `"metodo"` en la sección `energia`
+del JSON, con `python main.py lagrange --metodo simbolico` o con `python main.py simular --lagrange numerico`.
+
 ## Módulo 3 · Simulación, visualización e IA
 
 **SimPy** (`simulacion/centro_datos.py`):
@@ -260,7 +272,7 @@ datos por defecto.
 | `fallas` | `mtbf_router`, `mttr_router`, `mtbf_servidor`, `mttr_servidor` (s) |
 | `temperatura` | `funcion` (en `x`), `carga_min`, `carga_max`, `temperatura_emergencia` (°C), `inercia` (s) |
 | `refrigeracion` | `coef_ventilador` (A), `coef_calor` (B), `coef_acople` (C), `tasa_aprendizaje` (α), `tolerancia`, `max_iteraciones`, `nivel_minimo` |
-| `energia` | `presupuesto_total` (kW), `carga_base` |
+| `energia` | `presupuesto_total` (kW), `carga_base` y `metodo` opcional: `"analitico"` (por defecto), `"simbolico"` o `"numerico"` |
 
 ## Validaciones
 
@@ -284,10 +296,11 @@ datos por defecto.
 python -m pytest
 ```
 
-143 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
+163 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
 recursión hacia adelante comparada con la recursión hacia atrás y con Bellman-Ford (incluidos ciclos y latencias
 negativas), la mochila comparada con fuerza bruta, los puntos estacionarios analíticos, el gradiente comparado con
-diferencias finitas y con el óptimo analítico, las condiciones de Lagrange, el Hessiano orlado y el precio sombra, las
+diferencias finitas y con el óptimo analítico, las condiciones de Lagrange, los tres métodos de Lagrange comparados
+entre sí (y que `sp.solve` deduce la fórmula analítica), el Hessiano orlado y el precio sombra, las
 fórmulas M/M/1, la pérdida de paquetes cuando un nodo cae durante el viaje, la validación de la configuración y de los
 comandos, el menú interactivo, los botones del dashboard, la respuesta ante errores de la API de IA y varias invariantes
 de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y reproducibilidad con la misma

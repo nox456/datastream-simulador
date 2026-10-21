@@ -93,7 +93,7 @@ class SimuladorCentroDatos:
             max_iteraciones=r.max_iteraciones,
             nivel_minimo=r.nivel_minimo,
         )
-        self.asignador = AsignadorEnergia(config.energia.presupuesto_total)
+        self.asignador = AsignadorEnergia(config.energia.presupuesto_total, config.energia.metodo)
 
         # --- Estado dinámico ----------------------------------------------------
         self.cola: list[Tarea] = []

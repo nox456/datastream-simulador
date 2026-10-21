@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .dominio.tarea import TipoTarea
+from .modelos.presupuesto import METODOS_LAGRANGE
 from .modelos.temperatura import ModeloTermico
 
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
@@ -94,6 +95,7 @@ class ParametrosRefrigeracion:
 class ParametrosEnergia:
     presupuesto_total: float
     carga_base: float
+    metodo: str = "analitico"
 
 
 @dataclass(frozen=True)
@@ -121,6 +123,13 @@ class Configuracion:
         _validar_algoritmo(algoritmo, "algoritmo")
         _validar_enlaces_para(algoritmo, self.etapas, self.enlaces)
         return replace(self, algoritmo_rutas=algoritmo)
+
+    def con_metodo_lagrange(self, metodo: str | None) -> Configuracion:
+        """Copia con otro método para resolver el reparto de energía con Lagrange."""
+        if metodo is None:
+            return self
+        _validar_metodo_lagrange(metodo, "metodo")
+        return replace(self, energia=replace(self.energia, metodo=metodo))
 
 
 # ---------------------------------------------------------------------- #
@@ -387,10 +396,18 @@ def _leer_refrigeracion(datos: dict) -> ParametrosRefrigeracion:
 
 def _leer_energia(datos: dict) -> ParametrosEnergia:
     s, r = _seccion(datos, "energia"), "energia"
+    metodo = s.get("metodo", "analitico")
+    _validar_metodo_lagrange(metodo, "energia.metodo")
     return ParametrosEnergia(
         presupuesto_total=_positivo(s, "presupuesto_total", r, maximo=100_000),
         carga_base=_numero(s, "carga_base", r, minimo=0, maximo=1),
+        metodo=metodo,
     )
+
+
+def _validar_metodo_lagrange(metodo: Any, nombre: str) -> None:
+    if metodo not in METODOS_LAGRANGE:
+        raise ErrorConfiguracion(f"'{nombre}' debe ser uno de {list(METODOS_LAGRANGE)} (recibido: {metodo!r}).")
 
 
 def _leer_fallas(datos: dict) -> ParametrosFallas:

@@ -159,6 +159,7 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
             "tasa_aprendizaje": cfg.refrigeracion.tasa_aprendizaje,
         },
         "energia": {
+            "metodo": lagrange.metodo,
             "presupuesto": lagrange.presupuesto,
             "multiplicador": lagrange.multiplicador,
             "multiplicador_promedio": m.promedio("multiplicador"),

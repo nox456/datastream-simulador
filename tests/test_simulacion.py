@@ -11,6 +11,7 @@ from datastream.configuracion import (
     cargar_configuracion,
     construir_configuracion,
 )
+from datastream.modelos.presupuesto import AsignadorEnergia
 from datastream.simulacion.centro_datos import SimuladorCentroDatos
 from datastream.simulacion.resumen import construir_resumen
 
@@ -284,3 +285,30 @@ def test_ambos_algoritmos_dan_las_mismas_rutas_en_la_red_por_etapas():
     por_etapas = SimuladorCentroDatos(cargar_configuracion())
     bellman = SimuladorCentroDatos(cargar_configuracion().con_algoritmo("bellman_ford"))
     assert por_etapas.rutas_optimas == bellman.rutas_optimas
+
+
+def test_metodo_de_lagrange_en_la_configuracion():
+    assert cargar_configuracion().energia.metodo == "analitico"
+    assert construir_configuracion(_modificado(lambda d: d["energia"].update(metodo="numerico"))).energia.metodo == "numerico"
+    with pytest.raises(ErrorConfiguracion, match="energia.metodo"):
+        construir_configuracion(_modificado(lambda d: d["energia"].update(metodo="exacto")))
+    with pytest.raises(ErrorConfiguracion):
+        cargar_configuracion().con_metodo_lagrange("exacto")
+
+
+def test_simulacion_con_lagrange_simbolico_es_identica_a_la_analitica():
+    config = cargar_configuracion().con_cambios(duracion=60)
+    analitica, simbolica = SimuladorCentroDatos(config), SimuladorCentroDatos(config.con_metodo_lagrange("simbolico"))
+    analitica.ejecutar()
+    simbolica.ejecutar()
+    assert (analitica.metricas.procesadas, analitica.metricas.descartadas) == (simbolica.metricas.procesadas, simbolica.metricas.descartadas)
+    assert construir_resumen(simbolica)["energia"]["metodo"] == "simbolico"
+
+
+def test_simulacion_con_lagrange_numerico_respeta_el_presupuesto():
+    sim = SimuladorCentroDatos(cargar_configuracion().con_cambios(duracion=60).con_metodo_lagrange("numerico"))
+    sim.ejecutar()
+    for muestra in sim.metricas.muestras:
+        assert sum(muestra.energias_cluster) == pytest.approx(sim.config.energia.presupuesto_total)
+    esperado = AsignadorEnergia(sim.config.energia.presupuesto_total).asignar(sim.ultimos_coeficientes)
+    assert sim.ultimo_lagrange.energias == pytest.approx(esperado.energias, rel=1e-4, abs=1e-6)

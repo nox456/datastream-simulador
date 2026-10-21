@@ -18,6 +18,11 @@ from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, S
 
 from .analista_ia import AnalisisTexto
 
+DESCRIPCION_METODO = {
+    "analitico": "analítico (fórmula despejada de ∇L = 0)",
+    "simbolico": "simbólico (sp.solve sobre ∇L = 0)",
+    "numerico": "numérico (SciPy, SLSQP con la restricción de igualdad)",
+}
 AZUL_OSCURO = colors.HexColor("#0d3b66")
 GRIS_CLARO = colors.HexColor("#eef2f6")
 
@@ -246,6 +251,7 @@ class GeneradorReportePDF:
             "max Σ a<sub>i</sub>√E<sub>i</sub> s.a. ΣE<sub>i</sub> = E<sub>max</sub>  ⇒  "
             "E<sub>i</sub>* = E<sub>max</sub>·a<sub>i</sub><super>2</super>/Σa<sub>j</sub><super>2</super>,  "
             "λ* = √(Σa<sub>i</sub><super>2</super>) / (2√E<sub>max</sub>). "
+            f"Resuelto por el método {DESCRIPCION_METODO[energia['metodo']]}. "
             f"λ* final = {energia['multiplicador']:.4f}; residuo máximo de ∂L/∂E<sub>i</sub> = "
             f"{energia['verificacion']['max_residuo_dL_dEi']:.1e}."))
         menores = energia["verificacion"]["menores_hessiano_orlado"]

@@ -153,3 +153,40 @@ def test_hessiano_orlado_ignora_clusteres_sin_energia():
     asignador = AsignadorEnergia(50)
     hessiano = asignador.hessiano_orlado(asignador.asignar([0.0, 0.3, 0.4]), [0.0, 0.3, 0.4])
     assert hessiano["matriz"].shape == (3, 3) and hessiano["es_maximo"]
+
+
+@pytest.mark.parametrize("metodo", ["simbolico", "numerico"])
+@pytest.mark.parametrize("semilla", range(5))
+def test_los_tres_metodos_de_lagrange_coinciden(metodo, semilla):
+    azar = random.Random(semilla)
+    coeficientes = [azar.uniform(0.01, 0.3) for _ in range(4)]
+    presupuesto = azar.uniform(10, 500)
+    analitico = AsignadorEnergia(presupuesto).asignar(coeficientes)
+    otro = AsignadorEnergia(presupuesto, metodo).asignar(coeficientes)
+    assert otro.metodo == metodo
+    assert sum(otro.energias) == pytest.approx(presupuesto)
+    assert otro.energias == pytest.approx(analitico.energias, rel=1e-4, abs=1e-6)
+    assert otro.multiplicador == pytest.approx(analitico.multiplicador, rel=1e-4)
+
+
+def test_sp_solve_deduce_la_formula_analitica():
+    import sympy as sp
+
+    solucion = AsignadorEnergia.solucion_simbolica(3)
+    a1, a2, a3 = sp.symbols("a1:4", positive=True)
+    e_max = sp.Symbol("E_max", positive=True)
+    esperado = e_max * a1**2 / (a1**2 + a2**2 + a3**2)
+    assert sp.simplify(solucion[sp.Symbol("E1", positive=True)] - esperado) == 0
+    lam = solucion[sp.Symbol("lambda", positive=True)]
+    assert sp.simplify(lam - sp.sqrt(a1**2 + a2**2 + a3**2) / (2 * sp.sqrt(e_max))) == 0
+
+
+@pytest.mark.parametrize("metodo", ["analitico", "simbolico", "numerico"])
+def test_metodos_con_clusteres_sin_rendimiento(metodo):
+    resultado = AsignadorEnergia(50, metodo).asignar([0.0, 0.3, 0.4, 0.0])
+    assert resultado.energias == pytest.approx((0.0, 18.0, 32.0, 0.0), abs=1e-4)
+
+
+def test_metodo_de_lagrange_invalido():
+    with pytest.raises(ValueError):
+        AsignadorEnergia(100, "exacto")

@@ -89,3 +89,18 @@ def test_menu_pregunta_el_algoritmo_y_lo_valida(monkeypatch, capsys):
     assert cli.menu_interactivo(cargar_configuracion(), None) == 0
     salida = capsys.readouterr().out
     assert "Escriba 'etapas' o 'bellman-ford'" in salida and "Bellman-Ford" in salida
+
+
+def test_lagrange_por_metodo_simbolico_y_numerico(capsys):
+    assert cli.main(["lagrange", "--metodo", "simbolico"]) == 0
+    salida = capsys.readouterr().out
+    assert "sp.solve resolvió el sistema" in salida and "Comparado con la fórmula analítica" in salida
+    assert cli.main(["lagrange", "--metodo", "numerico"]) == 0
+    assert "SciPy (SLSQP)" in capsys.readouterr().out
+
+
+def test_menu_pregunta_el_metodo_de_lagrange(monkeypatch, capsys):
+    _responder(monkeypatch, ["7", "", "", "exacto", "numerico", "", "0"])
+    assert cli.menu_interactivo(cargar_configuracion(), None) == 0
+    salida = capsys.readouterr().out
+    assert "Escriba 'analitico', 'simbolico' o 'numerico'" in salida and "SciPy (SLSQP)" in salida

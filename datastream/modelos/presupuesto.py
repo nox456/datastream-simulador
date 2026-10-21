@@ -39,10 +39,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Sequence
+from functools import lru_cache
+from typing import Callable, Sequence
 
 import numpy as np
 import sympy as sp
+from scipy.optimize import minimize
+
+METODOS_LAGRANGE = ("analitico", "simbolico", "numerico")
 
 
 @dataclass(frozen=True)
@@ -52,16 +56,28 @@ class ResultadoLagrange:
     rendimientos: tuple[float, ...]
     rendimiento_total: float
     presupuesto: float
+    metodo: str = "analitico"
 
 
 class AsignadorEnergia:
-    def __init__(self, presupuesto_total: float):
+    """Reparto del presupuesto eléctrico por uno de tres métodos que deben dar el mismo óptimo:
+
+    - analitico: la fórmula E_i* = E_max·a_i²/Σa_j² despejada a mano de las condiciones de Lagrange.
+    - simbolico: sympy resuelve el sistema ∇L = 0 con coeficientes simbólicos (una vez por cantidad
+      de clústeres) y esa solución general se evalúa con los coeficientes de cada instante.
+    - numerico: SciPy maximiza R(E) directamente con la restricción Σ E_i = E_max (método SLSQP).
+    """
+
+    def __init__(self, presupuesto_total: float, metodo: str = "analitico"):
         if presupuesto_total <= 0:
             raise ValueError("El presupuesto eléctrico debe ser positivo.")
+        if metodo not in METODOS_LAGRANGE:
+            raise ValueError(f"Método de Lagrange desconocido: {metodo!r} (use {', '.join(METODOS_LAGRANGE)}).")
         self.presupuesto = float(presupuesto_total)
+        self.metodo = metodo
 
     def asignar(self, coeficientes: Sequence[float]) -> ResultadoLagrange:
-        """Solución analítica obtenida con las condiciones de Lagrange."""
+        """Reparto óptimo según el método elegido."""
         if not coeficientes:
             raise ValueError("Se requiere al menos un clúster.")
         if any(a < 0 for a in coeficientes):
@@ -70,12 +86,46 @@ class AsignadorEnergia:
         suma_cuadrados = sum(a * a for a in coeficientes)
         if suma_cuadrados == 0:  # ningún clúster puede aprovechar energía
             ceros = tuple(0.0 for _ in coeficientes)
-            return ResultadoLagrange(ceros, 0.0, ceros, 0.0, self.presupuesto)
+            return ResultadoLagrange(ceros, 0.0, ceros, 0.0, self.presupuesto, self.metodo)
 
-        multiplicador = math.sqrt(suma_cuadrados) / (2 * math.sqrt(self.presupuesto))
-        energias = tuple(self.presupuesto * a * a / suma_cuadrados for a in coeficientes)
+        if self.metodo == "simbolico":
+            energias, multiplicador = self._por_solucion_simbolica(coeficientes)
+        elif self.metodo == "numerico":
+            energias, multiplicador = self._por_optimizacion_numerica(coeficientes)
+        else:
+            multiplicador = math.sqrt(suma_cuadrados) / (2 * math.sqrt(self.presupuesto))
+            energias = tuple(self.presupuesto * a * a / suma_cuadrados for a in coeficientes)
         rendimientos = tuple(a * math.sqrt(e) for a, e in zip(coeficientes, energias))
-        return ResultadoLagrange(energias, multiplicador, rendimientos, sum(rendimientos), self.presupuesto)
+        return ResultadoLagrange(energias, multiplicador, rendimientos, sum(rendimientos), self.presupuesto, self.metodo)
+
+    def _por_solucion_simbolica(self, coeficientes: Sequence[float]) -> tuple[tuple[float, ...], float]:
+        evaluar = _solucion_general_evaluable(len(coeficientes))
+        *energias, multiplicador = evaluar(*coeficientes, self.presupuesto)
+        return tuple(float(e) for e in energias), float(multiplicador)
+
+    def _por_optimizacion_numerica(self, coeficientes: Sequence[float]) -> tuple[tuple[float, ...], float]:
+        a, total, n = np.asarray(coeficientes, float), self.presupuesto, len(coeficientes)
+        resultado = minimize(
+            lambda e: -np.sum(a * np.sqrt(np.maximum(e, 0.0))),
+            np.full(n, total / n),
+            jac=lambda e: -a / (2 * np.sqrt(np.maximum(e, 1e-12))),
+            method="SLSQP",
+            bounds=[(0.0, total)] * n,
+            constraints=[{"type": "eq", "fun": lambda e: e.sum() - total, "jac": lambda e: np.ones(n)}],
+            options={"ftol": 1e-12, "maxiter": 200},
+        )
+        if not resultado.success:
+            raise RuntimeError(f"SciPy no encontró el óptimo: {resultado.message}")
+        energias = np.clip(resultado.x, 0.0, None)
+        energias = energias * total / energias.sum()
+        activos = energias > 1e-9 * total
+        multiplicador = float(np.mean(a[activos] / (2 * np.sqrt(energias[activos]))))
+        return tuple(float(e) for e in energias), multiplicador
+
+    @staticmethod
+    def solucion_simbolica(n: int) -> dict[sp.Symbol, sp.Expr]:
+        """Solución general del sistema ∇L = 0 obtenida con sp.solve (E_1*, …, E_n* y λ*)."""
+        return _solucion_general(n)
 
     @staticmethod
     def verificar(resultado: ResultadoLagrange, coeficientes: Sequence[float]) -> dict[str, float]:
@@ -122,3 +172,27 @@ class AsignadorEnergia:
         parciales = [sp.Eq(sp.diff(lagrangiano, e), 0) for e in energias]
         parciales.append(sp.Eq(sp.diff(lagrangiano, lam), 0))
         return {"lagrangiano": lagrangiano, "condiciones": parciales}
+
+
+@lru_cache(maxsize=None)
+def _solucion_general(n: int) -> dict[sp.Symbol, sp.Expr]:
+    """sp.solve sobre las condiciones de primer orden con coeficientes simbólicos (tarda unos segundos)."""
+    if n < 1:
+        raise ValueError("Se requiere al menos un clúster.")
+    simbolico = AsignadorEnergia.derivacion_simbolica(n)
+    condiciones = simbolico["condiciones"]
+    incognitas = [sp.Symbol(f"E{i}", positive=True) for i in range(1, n + 1)] + [sp.Symbol("lambda", positive=True)]
+    soluciones = sp.solve(condiciones, incognitas, dict=True)
+    if len(soluciones) != 1:
+        raise RuntimeError(f"sympy encontró {len(soluciones)} soluciones; se esperaba una única.")
+    return soluciones[0]
+
+
+@lru_cache(maxsize=None)
+def _solucion_general_evaluable(n: int) -> Callable[..., list[float]]:
+    """Convierte la solución general en una función numérica f(a_1, …, a_n, E_max) → [E_1*, …, E_n*, λ*]."""
+    solucion = _solucion_general(n)
+    coeficientes = sp.symbols(f"a1:{n + 1}", positive=True)
+    e_max = sp.Symbol("E_max", positive=True)
+    incognitas = [sp.Symbol(f"E{i}", positive=True) for i in range(1, n + 1)] + [sp.Symbol("lambda", positive=True)]
+    return sp.lambdify([*coeficientes, e_max], [solucion[x] for x in incognitas], "math")

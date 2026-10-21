@@ -322,15 +322,25 @@ def demo_gradiente(config: Configuracion, cargas: Sequence[float]) -> None:
     )
 
 
-def demo_lagrange(config: Configuracion, presupuesto: float, coeficientes: Sequence[float]) -> None:
+def demo_lagrange(
+    config: Configuracion, presupuesto: float, coeficientes: Sequence[float], metodo: str = "analitico"
+) -> None:
     titulo("MÓDULO 2 · Asignación del presupuesto eléctrico con multiplicadores de Lagrange")
-    asignador = AsignadorEnergia(presupuesto)
+    asignador = AsignadorEnergia(presupuesto, metodo)
     simbolico = asignador.derivacion_simbolica(len(coeficientes))
     print(f"L(E, λ) = {simbolico['lagrangiano']}\n")
     print("Condiciones de primer orden (derivadas parciales = 0):")
     for condicion in simbolico["condiciones"]:
         print(f"   {condicion.lhs} = 0")
-    print("\n⇒ E_i* = E_max·a_i² / Σa_j²   y   λ* = √(Σa_i²) / (2·√E_max)\n")
+    if metodo == "simbolico":
+        print("\nsp.solve resolvió el sistema con coeficientes simbólicos:")
+        for incognita, expresion in asignador.solucion_simbolica(len(coeficientes)).items():
+            print(f"   {incognita}* = {expresion}")
+        print()
+    elif metodo == "numerico":
+        print("\nSciPy (SLSQP) maximiza R(E) directamente con la restricción Σ E_i = E_max, sin usar la fórmula.\n")
+    else:
+        print("\n⇒ E_i* = E_max·a_i² / Σa_j²   y   λ* = √(Σa_i²) / (2·√E_max)\n")
     resultado = asignador.asignar(coeficientes)
     imprimir_tabla(
         ["Clúster", "a_i", "E_i* (kW)", "% del total", "R_i = a_i·√E_i"],
@@ -344,6 +354,11 @@ def demo_lagrange(config: Configuracion, presupuesto: float, coeficientes: Seque
     print(f"Rendimiento total R* = {resultado.rendimiento_total:.4f} · Σ E_i = {sum(resultado.energias):.2f} kW")
     print(f"Verificación: max |∂L/∂E_i| = {verificacion['max_residuo_dL_dEi']:.2e} · "
           f"restricción = {verificacion['residuo_restriccion']:.2e}")
+    if metodo != "analitico":
+        analitico = AsignadorEnergia(presupuesto).asignar(coeficientes)
+        diferencia = max(abs(x - y) for x, y in zip(resultado.energias, analitico.energias))
+        print(f"Comparado con la fórmula analítica: diferencia máxima en E_i* = {diferencia:.2e} kW, "
+              f"en λ* = {abs(resultado.multiplicador - analitico.multiplicador):.2e}")
     print("Como ∂²R/∂E_i² = -a_i/(4·E_i^1.5) < 0, la función es cóncava y el punto es un máximo.")
 
     hessiano = asignador.hessiano_orlado(resultado, coeficientes)
