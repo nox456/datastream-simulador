@@ -130,3 +130,45 @@ def test_ambas_recursiones_coinciden(semilla):
 def test_destino_inexistente_en_recursion_hacia_atras():
     with pytest.raises(ValueError):
         RutaMasCortaDP(ETAPAS).resolver_hacia_atras(ARCOS, "Z")
+
+
+# ---------------------------------------------------------------- ejemplos resueltos en clase
+from datastream.consola import ARCOS_CLASE, ARTICULOS_BARCO, CAPACIDAD_BARCO, ETAPAS_CLASE  # noqa: E402
+from datastream.modelos.mochila import ModeloMochilaUnidades  # noqa: E402
+
+
+def test_ejemplo_de_clase_hacia_adelante():
+    resultado = RutaMasCortaDP(ETAPAS_CLASE).resolver(ARCOS_CLASE)
+    assert resultado.ruta_hacia("7") == ["1", "4", "5", "7"]
+    assert resultado.latencia_hacia("7") == 21
+    assert (resultado.distancias["5"], resultado.distancias["6"]) == (12, 17)  # lámina 7
+
+
+def test_ejemplo_de_clase_hacia_atras_reproduce_las_tablas():
+    resultado = RutaMasCortaDP(ETAPAS_CLASE).resolver_hacia_atras(ARCOS_CLASE, "7")
+    assert resultado.ruta() == ["1", "4", "5", "7"] and resultado.latencia == 21
+    # Láminas 11 a 13: f_3(5)=9, f_3(6)=6, f_2(2)=21, f_2(3)=15, f_2(4)=16 y f_1(1)=21
+    assert {n: resultado.valores[n] for n in "234567"} == {"2": 21, "3": 15, "4": 16, "5": 9, "6": 6, "7": 0}
+    assert [f.etapa for f in resultado.tabla] == [3, 3, 2, 2, 2, 1]  # se calcula desde la última etapa
+    fila_3 = next(f for f in resultado.tabla if f.nodo == "3")
+    assert [(c.hacia, c.costo) for c in fila_3.candidatos] == [("5", 17), ("6", 15)] and fila_3.decision == "6"
+
+
+def test_mochila_del_barco_de_clase():
+    resultado = ModeloMochilaUnidades().resolver(ARTICULOS_BARCO, CAPACIDAD_BARCO)
+    assert resultado.cantidades == (2, 0, 0) and resultado.valor_total == 62  # lámina 21
+    etapa_3, etapa_2, etapa_1 = resultado.etapas
+    assert [f.valor_optimo for f in etapa_3.filas] == [0, 14, 28, 42, 56]  # lámina 19
+    assert [f.valor_optimo for f in etapa_2.filas] == [0, 14, 28, 47, 61]  # lámina 20
+    assert [f.valor_optimo for f in etapa_1.filas] == [0, 14, 31, 47, 62]  # lámina 21
+    assert etapa_1.filas[4].alternativas == (61, 59, 62)
+
+
+@pytest.mark.parametrize("semilla", range(10))
+def test_mochila_por_unidades_con_limite_1_es_la_mochila_0_1(semilla):
+    azar = random.Random(semilla)
+    articulos = [Articulo(f"T{i}", azar.randint(1, 8), azar.uniform(1, 20)) for i in range(azar.randint(1, 8))]
+    capacidad = azar.randint(0, 20)
+    unidades = ModeloMochilaUnidades().resolver(articulos, capacidad, limites=[1] * len(articulos))
+    assert unidades.valor_total == pytest.approx(ModeloVolumenCarga().resolver(articulos, capacidad).valor_total)
+    assert unidades.peso_total <= capacidad

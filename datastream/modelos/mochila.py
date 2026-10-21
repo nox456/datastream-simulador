@@ -14,6 +14,15 @@ Formulación por programación dinámica:
 
 f_n(W) es el valor máximo que puede procesar el servidor sin exceder su
 capacidad; las tareas elegidas se recuperan recorriendo la tabla hacia atrás.
+
+En la simulación cada tarea es única, por eso se usa la versión 0/1. El modelo
+general visto en clase permite varias unidades de cada artículo
+(m_i = 0, 1, …, ⌊W/w_i⌋) y se resuelve con la recursión hacia atrás:
+
+    f_{n+1}(x) = 0
+    f_i(x_i) = max { r_i·m_i + f_{i+1}(x_i − w_i·m_i) },   m_i = 0, 1, …, ⌊x_i/w_i⌋
+
+La versión 0/1 es el caso particular m_i ∈ {0, 1} (ModeloMochilaUnidades).
 """
 
 from __future__ import annotations
@@ -94,3 +103,80 @@ class ModeloVolumenCarga:
                 raise ValueError(f"El peso de {articulo.nombre} debe ser un entero positivo.")
             if articulo.valor < 0:
                 raise ValueError(f"El valor de {articulo.nombre} no puede ser negativo.")
+
+
+@dataclass(frozen=True)
+class FilaMochila:
+    """Una fila de la tabla de la etapa i: estado x_i y valor de cada alternativa m_i."""
+
+    estado: int  # x_i: capacidad disponible para los artículos i, i+1, …, n
+    alternativas: tuple[float | None, ...]  # r_i·m_i + f_{i+1}(x_i − w_i·m_i) para m_i = 0, 1, … (None si no cabe)
+    valor_optimo: float  # f_i(x_i)
+    decision: int  # m_i*
+
+
+@dataclass(frozen=True)
+class EtapaMochila:
+    articulo: Articulo
+    maximo_unidades: int  # ⌊W / w_i⌋
+    filas: tuple[FilaMochila, ...]
+
+
+@dataclass(frozen=True)
+class ResultadoMochilaUnidades:
+    capacidad: int
+    cantidades: tuple[int, ...]  # m_i* de cada artículo
+    valor_total: float
+    peso_total: int
+    etapas: tuple[EtapaMochila, ...]  # en orden de cálculo: del último artículo al primero
+
+
+class ModeloMochilaUnidades:
+    """Modelo de la mochila con varias unidades por artículo (recursión hacia atrás).
+
+    `limites` permite acotar las unidades de cada artículo; con límite 1 para
+    todos se obtiene la mochila 0/1.
+    """
+
+    def resolver(
+        self, articulos: Sequence[Articulo], capacidad: int, limites: Sequence[int] | None = None
+    ) -> ResultadoMochilaUnidades:
+        ModeloVolumenCarga._validar(articulos, capacidad)
+        n = len(articulos)
+        if limites is not None and (len(limites) != n or any(l < 0 for l in limites)):
+            raise ValueError("Se requiere un límite de unidades no negativo por artículo.")
+
+        siguiente = [0.0] * (capacidad + 1)  # f_{n+1}(x) = 0 para todo x
+        decisiones: list[list[int]] = [[] for _ in range(n)]
+        etapas = []
+        for i in range(n - 1, -1, -1):
+            articulo = articulos[i]
+            maximo = capacidad // articulo.peso
+            if limites is not None:
+                maximo = min(maximo, limites[i])
+            actual, filas = [], []
+            for x in range(capacidad + 1):
+                alternativas = tuple(
+                    articulo.valor * m + siguiente[x - articulo.peso * m] if articulo.peso * m <= x else None
+                    for m in range(maximo + 1)
+                )
+                mejor = max(range(len(alternativas)), key=lambda m: (alternativas[m] is not None, alternativas[m] or 0.0))
+                actual.append(alternativas[mejor])
+                decisiones[i].append(mejor)
+                filas.append(FilaMochila(x, alternativas, alternativas[mejor], mejor))
+            etapas.append(EtapaMochila(articulo, maximo, tuple(filas)))
+            siguiente = actual
+
+        # Política óptima: desde el estado inicial x_1 = W hacia adelante.
+        cantidades, x = [], capacidad
+        for i in range(n):
+            m = decisiones[i][x]
+            cantidades.append(m)
+            x -= articulos[i].peso * m
+        return ResultadoMochilaUnidades(
+            capacidad=capacidad,
+            cantidades=tuple(cantidades),
+            valor_total=siguiente[capacidad] if n else 0.0,
+            peso_total=sum(a.peso * m for a, m in zip(articulos, cantidades)),
+            etapas=tuple(etapas),
+        )

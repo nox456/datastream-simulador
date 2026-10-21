@@ -122,11 +122,13 @@ def construir_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("ruta", help="módulo 1: tablas de programación dinámica de la ruta más corta")
     p.add_argument("--falla", action="append", default=[], metavar="NODO", help="nodo fuera de servicio (repetible)")
     p.add_argument("--destino", metavar="NODO", help="destino de la recursión hacia atrás (por defecto el switch del primer clúster)")
+    p.add_argument("--ejemplo-clase", action="store_true", help="resuelve el ejemplo de la red de 7 ciudades visto en clase")
 
     p = sub.add_parser("mochila", help="módulo 1: modelo de volumen-carga")
     p.add_argument("--capacidad", type=_numero_en_rango(int, 1, 200), default=16)
     p.add_argument("--tareas", type=_numero_en_rango(int, 1, 60), default=8)
     p.add_argument("--semilla", type=_numero_en_rango(int, 0, 2**31 - 1), default=7)
+    p.add_argument("--ejemplo-clase", action="store_true", help="resuelve el ejemplo del barco de 4 toneladas visto en clase")
 
     p = sub.add_parser("temperatura", help="módulo 2: puntos estacionarios del modelo térmico")
     p.add_argument("--emergencia", type=_numero_en_rango(float, 0, 200), help="temperatura de emergencia (°C)")
@@ -145,10 +147,16 @@ def ejecutar_comando(config: Configuracion, args: argparse.Namespace) -> int:
         config = config.con_cambios(duracion=args.duracion, semilla=args.semilla, tasa_llegada=args.tasa)
         return ejecutar_simulacion(config, args.sin_gui, args.velocidad)
     if args.comando == "ruta":
+        if args.ejemplo_clase:
+            consola.demo_ruta_clase()
+            return 0
         _validar_nodos(config, args.falla)
         _validar_destino(config, args.destino, args.falla)
         consola.demo_ruta(config, args.falla, args.destino)
     elif args.comando == "mochila":
+        if args.ejemplo_clase:
+            consola.demo_mochila_clase()
+            return 0
         consola.demo_mochila(config, args.capacidad, args.tareas, args.semilla)
     elif args.comando == "temperatura":
         consola.demo_temperatura(config, args.emergencia)
@@ -225,6 +233,7 @@ OPCIONES = """
  6. Módulo 2 · Método de gradiente (refrigeración)
  7. Módulo 2 · Lagrange (presupuesto eléctrico)
  8. Cargar otro archivo de configuración
+ 9. Ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco)
  0. Salir"""
 
 
@@ -273,8 +282,11 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
                 ruta = Path(input("Ruta del archivo JSON: ").strip().strip('"'))
                 config, ruta_config = cargar_configuracion(ruta), ruta
                 print("  ✓ Configuración cargada y validada correctamente.")
+            elif opcion == "9":
+                consola.demo_ruta_clase()
+                consola.demo_mochila_clase()
             else:
-                print("  ✗ Opción inválida: ingrese un número del 0 al 8.")
+                print("  ✗ Opción inválida: ingrese un número del 0 al 9.")
                 continue
         except ErrorConfiguracion as error:
             print(f"  ✗ {error}")

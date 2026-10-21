@@ -7,7 +7,7 @@ import random
 from typing import Sequence
 
 from .configuracion import Configuracion
-from .modelos.mochila import Articulo, ModeloVolumenCarga
+from .modelos.mochila import Articulo, ModeloMochilaUnidades, ModeloVolumenCarga, ResultadoMochilaUnidades
 from .modelos.presupuesto import AsignadorEnergia
 from .modelos.refrigeracion import OptimizadorRefrigeracion
 from .modelos.ruta_mas_corta import INFINITO, ResultadoHaciaAtras, ResultadoRutas, RutaMasCortaDP
@@ -115,6 +115,63 @@ def demo_ruta(config: Configuracion, nodos_caidos: Sequence[str] = (), destino: 
             for c in config.clusters
         ],
     )
+
+
+# Datos de los ejemplos resueltos en la Lectura 1 de Programación Dinámica (láminas 4-13 y 18-21).
+ETAPAS_CLASE = [["1"], ["2", "3", "4"], ["5", "6"], ["7"]]
+ARCOS_CLASE = {
+    ("1", "2"): 7, ("1", "3"): 8, ("1", "4"): 5,
+    ("2", "5"): 12, ("3", "5"): 8, ("3", "6"): 9, ("4", "5"): 7, ("4", "6"): 13,
+    ("5", "7"): 9, ("6", "7"): 6,
+}
+ARTICULOS_BARCO = [Articulo("Artículo 1", 2, 31), Articulo("Artículo 2", 3, 47), Articulo("Artículo 3", 1, 14)]
+CAPACIDAD_BARCO = 4
+
+
+def demo_ruta_clase() -> None:
+    titulo("EJEMPLO DE CLASE · Ruta más corta entre las ciudades 1 y 7 (respuesta esperada: 1 > 4 > 5 > 7, 21 km)")
+    modelo = RutaMasCortaDP(ETAPAS_CLASE)
+    print("Recursión hacia adelante:")
+    adelante = modelo.resolver(ARCOS_CLASE)
+    _imprimir_hacia_adelante(adelante)
+    print("\nRecursión hacia atrás:")
+    atras = modelo.resolver_hacia_atras(ARCOS_CLASE, "7")
+    _imprimir_hacia_atras(atras)
+    print(f"\nRuta más corta: {' > '.join(atras.ruta())} con {atras.latencia:.0f} km "
+          f"(hacia adelante: {' > '.join(adelante.ruta_hacia('7'))}, {adelante.latencia_hacia('7'):.0f} km)")
+
+
+def demo_mochila_clase() -> None:
+    titulo("EJEMPLO DE CLASE · Barco de 4 toneladas (respuesta esperada: 2 unidades del artículo 1, $62.000)")
+    imprimir_tabla(
+        ["Artículo i", "Peso unitario w_i (t)", "Ingreso unitario r_i (miles $)"],
+        [[a.nombre, a.peso, f"{a.valor:.0f}"] for a in ARTICULOS_BARCO],
+    )
+    resultado = ModeloMochilaUnidades().resolver(ARTICULOS_BARCO, CAPACIDAD_BARCO)
+    _imprimir_mochila_unidades(resultado)
+
+
+def _imprimir_mochila_unidades(resultado: ResultadoMochilaUnidades) -> None:
+    """Tablas f_i(x_i) de la recursión hacia atrás, de la última etapa a la primera."""
+    n = len(resultado.etapas)
+    for calculadas, etapa in enumerate(resultado.etapas):  # se calcularon del último artículo al primero
+        i = n - calculadas
+        a = etapa.articulo
+        siguiente = f" + f_{i + 1}(x_{i} - {a.peso}·m_{i})" if i < n else ""
+        print(f"\nEtapa {i} ({a.nombre}):  f_{i}(x_{i}) = max {{ {a.valor:g}·m_{i}{siguiente} }},  "
+              f"m_{i} = 0, …, ⌊{resultado.capacidad}/{a.peso}⌋ = {etapa.maximo_unidades}")
+        imprimir_tabla(
+            [f"x_{i}"] + [f"m_{i}={m}" for m in range(etapa.maximo_unidades + 1)] + [f"f_{i}(x_{i})", f"m_{i}*"],
+            [
+                [fila.estado]
+                + ["-" if v is None else f"{v:g}" for v in fila.alternativas]
+                + [f"{fila.valor_optimo:g}", fila.decision]
+                for fila in etapa.filas
+            ],
+        )
+    detalle = ", ".join(f"{m} de {a.nombre}" for a, m in zip((e.articulo for e in reversed(resultado.etapas)), resultado.cantidades))
+    print(f"\nSolución óptima: {detalle} · rendimiento {resultado.valor_total:g} · "
+          f"peso {resultado.peso_total}/{resultado.capacidad}")
 
 
 def demo_mochila(config: Configuracion, capacidad: int, cantidad: int, semilla: int) -> None:

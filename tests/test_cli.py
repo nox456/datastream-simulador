@@ -50,3 +50,17 @@ def test_ruta_muestra_ambas_recursiones(capsys):
     salida = capsys.readouterr().out
     assert "Recursión hacia adelante" in salida and "Recursión hacia atrás" in salida
     assert "Ambas recursiones dan la misma latencia óptima." in salida
+
+
+def test_ejemplos_de_clase_por_linea_de_comandos(capsys):
+    assert cli.main(["ruta", "--ejemplo-clase"]) == 0
+    assert "Ruta más corta: 1 > 4 > 5 > 7 con 21 km" in capsys.readouterr().out
+    assert cli.main(["mochila", "--ejemplo-clase"]) == 0
+    assert "2 de Artículo 1, 0 de Artículo 2, 0 de Artículo 3 · rendimiento 62" in capsys.readouterr().out
+
+
+def test_opcion_9_del_menu_muestra_los_ejemplos_de_clase(monkeypatch, capsys):
+    _responder(monkeypatch, ["9", "", "0"])  # opción 9 → Enter (volver al menú) → 0 (salir)
+    assert cli.menu_interactivo(cargar_configuracion(), None) == 0
+    salida = capsys.readouterr().out
+    assert "1 > 4 > 5 > 7 con 21 km" in salida and "rendimiento 62" in salida
