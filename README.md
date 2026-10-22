@@ -19,9 +19,10 @@ y **optimización no lineal** para tomar decisiones. Al final genera un **report
 4. [Módulo 1 · Programación dinámica](#módulo-1--programación-dinámica)
 5. [Módulo 2 · Optimización no lineal](#módulo-2--optimización-no-lineal)
 6. [Módulo 3 · Simulación, visualización e IA](#módulo-3--simulación-visualización-e-ia)
-7. [Datos de configuración](#datos-de-configuración)
-8. [Validaciones](#validaciones)
-9. [Pruebas](#pruebas)
+7. [Programación lineal · Método Simplex](#programación-lineal--método-simplex)
+8. [Datos de configuración](#datos-de-configuración)
+9. [Validaciones](#validaciones)
+10. [Pruebas](#pruebas)
 
 ---
 
@@ -65,6 +66,8 @@ Cada módulo matemático también se puede ejecutar **de forma independiente** p
 | `python main.py temperatura [--emergencia 80]` | `T(x)`, `T'(x)`, `T''(x)`, puntos estacionarios, inflexión y punto crítico |
 | `python main.py gradiente [--cargas 0.9,0.5,0.2,0.7]` | Iteraciones del método de gradiente hasta converger |
 | `python main.py lagrange [--presupuesto 150] [--metodo simbolico]` | Lagrangiano, derivadas parciales, `λ*`, reparto óptimo de energía y Hessiano orlado; con `--metodo` se resuelve con `sp.solve` o con SciPy y se compara con la fórmula |
+| `python main.py lineal [--ejemplo parcial-iv]` | Programación lineal con el método Simplex: cada tabla, solución, precios sombra y casos especiales (ver [abajo](#programación-lineal--método-simplex)) |
+| `python main.py lineal --objetivo 3,5 --restriccion "1,0<=4" --restriccion "3,2<=18"` | Simplex sobre un problema propio (agregue `--minimizar` para minimizar) |
 
 ### Controles del dashboard
 
@@ -102,6 +105,7 @@ datastream/
     temperatura.py            análisis con derivadas (sympy)
     refrigeracion.py          método de gradiente
     presupuesto.py            multiplicadores de Lagrange (analítico, sp.solve o SciPy)
+    programacion_lineal.py    método Simplex de dos fases (con cada tabla y los precios sombra)
     colas.py                  referencia M/M/c y ley de Little
   simulacion/               casos de uso en el tiempo (SimPy)
     centro_datos.py           procesos: llegadas, despacho, tránsito, proceso, fallas, control
@@ -260,6 +264,46 @@ DeepSeek** (`deepseek-chat` a través del SDK oficial `openai`, compatible con l
 local basado en reglas. En [`docs/reporte_ejemplo.pdf`](docs/reporte_ejemplo.pdf) hay un ejemplo generado con los
 datos por defecto.
 
+## Programación lineal · Método Simplex
+
+`modelos/programacion_lineal.py` (`ResolvedorSimplex`) resuelve problemas de maximización o minimización con
+restricciones `<=`, `>=` e `=`, con un Simplex propio que guarda cada tabla (SciPy solo se usa para verificar):
+
+```
+max (o min) Z = c·x     s.a.  a_i·x (<=, >= o =) b_i,   x >= 0
+```
+
+1. **Forma estándar:** holgura `s_i` en cada `<=`, exceso `e_i` (coeficiente −1) y artificial `a_i` en cada `>=`, y
+   artificial `a_i` en cada `=`. Si `b_i < 0` la restricción se multiplica por −1. `min Z` se resuelve como `max (−Z)`.
+2. **Fase 1** (solo si hay artificiales): `max W = −Σ a_i`. Si termina con `W* < 0`, el problema es **infactible**.
+3. **Fase 2:** sin las columnas artificiales se optimiza `Z`. La fila objetivo guarda `z_j − c_j`: entra la variable
+   más negativa y sale la de menor razón `b_i / a_ik` (`a_ik > 0`). Si una base se repite (ciclaje por degeneración)
+   se pasa a la regla de Bland.
+
+| Caso | Cómo se detecta |
+|---|---|
+| Solución **no acotada** | La columna de la variable que entra no tiene coeficientes positivos (no hay razón mínima) |
+| Problema **infactible** | La fase 1 termina con `W* < 0`: alguna artificial no puede valer 0 |
+| **Soluciones múltiples** | En la tabla óptima una no básica tiene `z_j − c_j = 0`; se pivotea para mostrar la segunda solución óptima (toda combinación convexa de ambas también es óptima) |
+
+**Precios sombra:** `yᵀ = c_Bᵀ·B⁻¹` con la base óptima, es decir, `y_i = ∂Z/∂b_i` (cuánto cambia `Z` por cada unidad
+adicional del lado derecho). También se informan la holgura de cada restricción, las restricciones redundantes y si la
+solución es degenerada.
+
+Ejemplos incluidos (`--ejemplo` o la opción 10 del menú, que además permite ingresar un problema propio):
+
+| Ejemplo | Qué muestra |
+|---|---|
+| `centro-datos` (por defecto) | Cuántas tareas de cada tipo (web, base de datos, video, IA) procesar para maximizar el rendimiento `r_j = prioridad·cpu` sin exceder la CPU total (180) ni el presupuesto eléctrico (120 kW, con consumo `e_j = 0.1·cpu·t_j`), con un mínimo de 10 tareas web. Los datos salen de la configuración. Óptimo: 10 web, 7.5 de base de datos y 16.25 de IA, `Z* = 1290`, precios sombra 4 por unidad de CPU, 5 por kW y −3 por tarea web exigida |
+| `parcial-iv` | Relajación lineal del problema 2 del Parcial IV (`max 100x1 + 40x2`): **soluciones múltiples** `(1.5, 0)` y `(0, 3.75)` con `Z* = 150` |
+| `minimizar` | `min 4x1 + x2` con restricciones `=`, `>=` y `<=` (dos fases): `x = (2/5, 9/5)`, `Z* = 17/5` |
+| `no-acotado` | `max 2x1 + x2` con `x1 − x2 <= 10`, `2x1 <= 40`: solución **no acotada** |
+| `infactible` | `max 3x1 + 2x2` con `2x1 + x2 <= 2`, `3x1 + 4x2 >= 12`: problema **infactible** |
+
+Las restricciones se escriben `coef1,coef2,...<=b` (o `>=`, `=`), con punto decimal y **entre comillas** en la
+terminal, porque `<` y `>` son redirecciones. Si un valor empieza con `-`, use `--objetivo=-3,5` o
+`--restriccion="-1,2<=4"`.
+
 ## Datos de configuración
 
 `datos/configuracion_default.json` contiene los datos de prueba por defecto. Puede copiarlo, modificarlo y cargarlo con
@@ -286,7 +330,8 @@ datos por defecto.
 - **Comandos:** cada argumento se valida con rangos (`--tasa 99` → error claro), las listas deben tener un valor por
   clúster y los nodos que se marcan como caídos deben existir (el gateway no puede fallar). El destino de la recursión
   hacia atrás debe existir, no puede ser el gateway ni estar caído. No se puede forzar la DP por etapas sobre una red
-  con enlaces laterales.
+  con enlaces laterales. En `lineal`, cada restricción debe tener un coeficiente por variable, un sentido válido
+  (`<=`, `>=`, `=`) y números finitos, y no se pueden combinar `--ejemplo` y `--objetivo`.
 - **Menú interactivo:** vuelve a pedir el dato hasta que sea válido, y Enter acepta el valor por defecto. Un error
   inesperado se informa sin cerrar el menú.
 - **Dashboard:** límites de velocidad, de tasa de llegada, de presupuesto eléctrico (20 % a 300 % del nominal) y del
@@ -299,12 +344,13 @@ datos por defecto.
 python -m pytest
 ```
 
-171 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
+214 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
 recursión hacia adelante comparada con la recursión hacia atrás y con Bellman-Ford (incluidos ciclos y latencias
 negativas), la mochila comparada con fuerza bruta, los puntos estacionarios analíticos, el gradiente comparado con
 diferencias finitas y con el óptimo analítico, las condiciones de Lagrange, los tres métodos de Lagrange comparados
 entre sí (y que `sp.solve` deduce la fórmula analítica), el Hessiano orlado y el precio sombra, las
-fórmulas M/M/1, la pérdida de paquetes cuando un nodo cae durante el viaje, la validación de la configuración y de los
+fórmulas M/M/1, el Simplex (tabla por tabla, casos especiales, ciclaje de Beale, 300 problemas aleatorios comparados con
+SciPy y los precios sombra comparados con la derivada numérica), la pérdida de paquetes cuando un nodo cae durante el viaje, la validación de la configuración y de los
 comandos, el menú interactivo, los botones del dashboard y los ajustes en vivo del presupuesto y del umbral térmico, la respuesta ante errores de la API de IA y varias invariantes
 de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y reproducibilidad con la misma
 semilla).

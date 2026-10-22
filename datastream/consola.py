@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import math
 import random
+from fractions import Fraction
 from typing import Sequence
 
 from .configuracion import Configuracion
 from .modelos.bellman_ford import BellmanFordDP
 from .modelos.mochila import Articulo, ModeloMochilaUnidades, ModeloVolumenCarga, ResultadoMochilaUnidades
 from .modelos.presupuesto import AsignadorEnergia
+from .modelos.programacion_lineal import (
+    ProblemaLineal,
+    ResolvedorSimplex,
+    Restriccion,
+    ResultadoSimplex,
+    TablaSimplex,
+    resolver_con_scipy,
+)
 from .modelos.refrigeracion import OptimizadorRefrigeracion
 from .modelos.ruta_mas_corta import INFINITO, ResultadoHaciaAtras, ResultadoRutas, RutaMasCortaDP
 from .modelos.temperatura import ModeloTermico
@@ -384,3 +393,228 @@ def coeficientes_por_defecto(config: Configuracion, carga: float = 0.5) -> list[
         c.eficiencia * (sum(s.capacidad for s in c.servidores) / capacidad_total) * (config.energia.carga_base + carga)
         for c in config.clusters
     ]
+
+
+MINIMO_WEB = 10
+EJEMPLOS_LINEAL = ("centro-datos", "parcial-iv", "minimizar", "no-acotado", "infactible")
+
+
+def problema_centro_datos(config: Configuracion) -> ProblemaLineal:
+    """Tareas simultáneas de cada tipo que maximizan el rendimiento sin exceder la CPU ni la energía.
+
+    Para cada tipo j, cpu_j y prioridad_j son los puntos medios de sus rangos, el rendimiento
+    es r_j = prioridad_j·cpu_j (el mismo valor de la mochila) y el consumo e_j = 0.1·cpu_j·t_j kW
+    (las tareas pesadas y largas consumen más). La CPU disponible es la capacidad total de los
+    servidores, la energía es el presupuesto eléctrico y se exige un mínimo de tareas web.
+    """
+    tipos = config.tipos_tarea
+    cpu = [(t.cpu_min + t.cpu_max) / 2 for t in tipos]
+    rendimiento = [(t.prioridad_min + t.prioridad_max) / 2 * c for t, c in zip(tipos, cpu)]
+    consumo = [0.1 * c * t.tiempo_servicio for t, c in zip(tipos, cpu)]
+    restricciones = [
+        Restriccion(tuple(cpu), "<=", float(sum(s.capacidad for c in config.clusters for s in c.servidores))),
+        Restriccion(tuple(consumo), "<=", config.energia.presupuesto_total),
+    ]
+    restricciones += [
+        Restriccion(tuple(1.0 if j == i else 0.0 for j in range(len(tipos))), ">=", MINIMO_WEB)
+        for i, t in enumerate(tipos)
+        if t.nombre == "web"
+    ]
+    return ProblemaLineal(tuple(rendimiento), tuple(restricciones), "max", tuple(t.nombre for t in tipos))
+
+
+def problema_ejemplo(nombre: str, config: Configuracion) -> tuple[ProblemaLineal, str]:
+    if nombre == "centro-datos":
+        return problema_centro_datos(config), "Centro de datos: tareas por tipo con CPU y energía limitadas"
+    if nombre == "parcial-iv":
+        return ProblemaLineal(
+            (100, 40), (Restriccion((2, 1), "<=", 9), Restriccion((10, 4), "<=", 15))
+        ), "Relajación lineal del problema 2 del Parcial IV (soluciones múltiples)"
+    if nombre == "minimizar":
+        return ProblemaLineal(
+            (4, 1),
+            (Restriccion((3, 1), "=", 3), Restriccion((4, 3), ">=", 6), Restriccion((1, 2), "<=", 4)),
+            "min",
+        ), "Minimización con restricciones =, >= y <= (dos fases)"
+    if nombre == "no-acotado":
+        return ProblemaLineal(
+            (2, 1), (Restriccion((1, -1), "<=", 10), Restriccion((2, 0), "<=", 40))
+        ), "Solución no acotada"
+    if nombre == "infactible":
+        return ProblemaLineal(
+            (3, 2), (Restriccion((2, 1), "<=", 2), Restriccion((3, 4), ">=", 12))
+        ), "Problema infactible"
+    raise ValueError(f"Ejemplo desconocido '{nombre}'. Opciones: {', '.join(EJEMPLOS_LINEAL)}")
+
+
+def demo_lineal_ejemplo(nombre: str, config: Configuracion) -> ResultadoSimplex:
+    problema, descripcion = problema_ejemplo(nombre, config)
+    datos = None
+    if nombre == "centro-datos":
+        datos = (
+            ["Tipo j", "cpu_j", "prioridad_j", "r_j = prioridad·cpu", "t_j (s)", "e_j = 0.1·cpu·t (kW)"],
+            [
+                [t.nombre, f"{(t.cpu_min + t.cpu_max) / 2:g}", f"{(t.prioridad_min + t.prioridad_max) / 2:g}",
+                 f"{r:g}", f"{t.tiempo_servicio:g}", f"{e:g}"]
+                for t, r, e in zip(config.tipos_tarea, problema.objetivo, problema.restricciones[1].coeficientes)
+            ],
+        )
+    return demo_lineal(problema, descripcion, datos)
+
+
+def demo_lineal(
+    problema: ProblemaLineal,
+    descripcion: str = "Problema ingresado",
+    datos: tuple[Sequence[str], Sequence[Sequence]] | None = None,
+) -> ResultadoSimplex:
+    titulo(f"PROGRAMACIÓN LINEAL · Método Simplex · {descripcion}")
+    if datos is not None:
+        imprimir_tabla(*datos)
+        print()
+    nombres = problema.nombres
+    print(f"{problema.sentido} Z = {_expresion(problema.objetivo, nombres)}")
+    print("s.a.")
+    for i, r in enumerate(problema.restricciones, start=1):
+        print(f"   ({i}) {_expresion(r.coeficientes, nombres)} {r.sentido} {r.lado_derecho:g}")
+    print(f"   {', '.join(nombres)} >= 0")
+
+    resultado = ResolvedorSimplex().resolver(problema)
+    _imprimir_forma_estandar(problema, resultado)
+    for tabla in resultado.tablas:
+        _imprimir_tabla_simplex(tabla, resultado.usa_dos_fases)
+    _imprimir_resultado_lineal(problema, resultado)
+    return resultado
+
+
+def _expresion(coeficientes: Sequence[float], nombres: Sequence[str]) -> str:
+    terminos = []
+    for a, x in zip(coeficientes, nombres):
+        if a == 0:
+            continue
+        magnitud = "" if abs(a) == 1 else f"{abs(a):g}·"
+        signo = ("-" if a < 0 else "") if not terminos else (" - " if a < 0 else " + ")
+        terminos.append(f"{signo}{magnitud}{x}")
+    return "".join(terminos) or "0"
+
+
+def _fraccion(valor: float) -> str:
+    """Muestra el número como fracción (2/5, -7/3) cuando lo es, igual que en las tablas hechas a mano."""
+    aproximada = Fraction(valor).limit_denominator(1000)
+    if abs(float(aproximada) - valor) > 1e-9:
+        return f"{valor:.4g}"
+    if aproximada.denominator == 1:
+        return str(aproximada.numerator)
+    return f"{aproximada.numerator}/{aproximada.denominator}"
+
+
+def _imprimir_forma_estandar(problema: ProblemaLineal, resultado: ResultadoSimplex) -> None:
+    agregadas = resultado.tablas[0].columnas[len(problema.objetivo):]
+    print("\nForma estándar:")
+    if problema.sentido == "min":
+        print("   min Z equivale a max (-Z): se maximiza -Z y al final se cambia el signo.")
+    if any(r.lado_derecho < 0 for r in problema.restricciones):
+        print("   Las restricciones con b_i < 0 se multiplicaron por -1 (cambia su sentido).")
+    descripciones = {
+        "s": "Variables de holgura (<=)",
+        "e": "Variables de exceso (>=, coeficiente -1)",
+        "a": "Variables artificiales (>= o =)",
+    }
+    for prefijo, texto in descripciones.items():
+        variables = [v for v in agregadas if v.startswith(prefijo)]
+        if variables:
+            print(f"   {texto}: {', '.join(variables)}")
+    if resultado.usa_dos_fases:
+        artificiales = [v for v in agregadas if v.startswith("a")]
+        print(f"   Fase 1: max W = -({' + '.join(artificiales)}) para llevar las artificiales a 0.")
+        print("   Fase 2: se eliminan las artificiales y se optimiza Z desde la base factible obtenida.")
+    print("   Fila objetivo: z_j - c_j. Entra la más negativa; sale la de menor razón b_i / a_ik (a_ik > 0).")
+
+
+def _imprimir_tabla_simplex(tabla: TablaSimplex, dos_fases: bool, encabezado: str | None = None) -> None:
+    print(f"\n{encabezado or (f'Fase {tabla.fase} · ' if dos_fases else '') + f'Tabla {tabla.iteracion}'}")
+    con_razones = bool(tabla.razones)
+    filas = []
+    for i, (variable, fila) in enumerate(zip(tabla.base, tabla.filas)):
+        extra = []
+        if con_razones:
+            razon = tabla.razones[i]
+            extra = ["-" if razon is None else _fraccion(razon) + (" ←" if variable == tabla.saliente else "")]
+        filas.append([variable, *map(_fraccion, fila), *extra])
+    filas.append([tabla.etiqueta_objetivo, *map(_fraccion, tabla.fila_objetivo), *([""] if con_razones else [])])
+    columnas = [c + (" ↓" if c == tabla.entrante else "") for c in tabla.columnas]
+    imprimir_tabla(["Base", *columnas, "Solución", *(["Razón"] if con_razones else [])], filas)
+
+    if tabla.entrante is None:
+        if tabla.fase == 1:
+            print(f"Fin de la fase 1: todos los z_j - c_j >= 0, W* = {_fraccion(tabla.fila_objetivo[-1])}.")
+        else:
+            print("Todos los z_j - c_j son >= 0: la tabla es óptima.")
+        return
+    k = tabla.columnas.index(tabla.entrante)
+    texto = f"Entra {tabla.entrante} (z_j - c_j = {_fraccion(tabla.fila_objetivo[k])})"
+    if tabla.saliente is None:
+        print(f"{texto}, pero ningún coeficiente de su columna es positivo: no hay razón mínima.")
+        return
+    r = tabla.base.index(tabla.saliente)
+    print(f"{texto} · sale {tabla.saliente} (razón mínima {_fraccion(tabla.razones[r])}) · "
+          f"pivote {_fraccion(tabla.filas[r][k])}")
+
+
+def _imprimir_resultado_lineal(problema: ProblemaLineal, resultado: ResultadoSimplex) -> None:
+    nombres = problema.nombres
+    if resultado.estado == "infactible":
+        w = resultado.tablas[-1].fila_objetivo[-1]
+        print(f"\nPROBLEMA INFACTIBLE: la fase 1 terminó con W* = {_fraccion(w)} < 0. Alguna variable artificial no "
+              "puede valer 0, así que ningún x >= 0 cumple todas las restricciones a la vez.")
+    elif resultado.estado == "no_acotado":
+        limite = "+∞" if problema.sentido == "max" else "-∞"
+        print(f"\nSOLUCIÓN NO ACOTADA: {resultado.variable_no_acotada} puede crecer sin límite sin violar ninguna "
+              f"restricción, así que Z → {limite}.")
+    else:
+        print("\nSolución óptima:")
+        imprimir_tabla(["Variable", "Valor"], [[x, f"{v:g}"] for x, v in zip(nombres, resultado.valores)])
+        print(f"Z* = {resultado.valor_objetivo:g}\n")
+        filas = []
+        for i, (r, holgura, precio) in enumerate(zip(problema.restricciones, resultado.holguras, resultado.precios_sombra), 1):
+            actividad = sum(a * v for a, v in zip(r.coeficientes, resultado.valores))
+            filas.append([
+                f"({i})", f"{actividad:g}", f"{r.sentido} {r.lado_derecho:g}", f"{holgura:g}",
+                "activa" if abs(holgura) < 1e-9 else "con holgura", f"{precio:g}",
+            ])
+        imprimir_tabla(["Restricción", "a_i·x", "Límite", "Holgura / exceso", "Estado", "Precio sombra y_i"], filas)
+        print("Precio sombra y_i = ∂Z/∂b_i: cuánto cambia Z por cada unidad adicional del lado derecho "
+              "(vale 0 si la restricción tiene holgura).")
+        if resultado.restricciones_redundantes:
+            print("Restricciones redundantes (combinación de las demás): "
+                  + ", ".join(f"({i + 1})" for i in resultado.restricciones_redundantes))
+        if resultado.degenerada:
+            print("La solución es degenerada (una variable básica vale 0): los precios sombra pueden no ser únicos.")
+        _imprimir_soluciones_multiples(nombres, resultado)
+
+    estado, _, valor = resolver_con_scipy(problema)
+    if estado != resultado.estado:
+        print(f"\nATENCIÓN: SciPy (linprog) informa '{estado}' y el Simplex '{resultado.estado}'.")
+    elif estado == "optimo":
+        coincide = math.isclose(valor, resultado.valor_objetivo, rel_tol=1e-7, abs_tol=1e-7)
+        print(f"\nVerificación con SciPy (linprog, HiGHS): Z* = {valor:g} · "
+              + ("coincide con el Simplex." if coincide else "NO coincide con el Simplex."))
+    else:
+        print(f"\nVerificación con SciPy (linprog, HiGHS): también lo declara {estado.replace('_', ' ')}.")
+
+
+def _imprimir_soluciones_multiples(nombres: Sequence[str], resultado: ResultadoSimplex) -> None:
+    if not resultado.soluciones_multiples:
+        return
+    if resultado.solucion_alternativa is None:
+        print("\nSOLUCIONES MÚLTIPLES: una variable no básica tiene z_j - c_j = 0 y ningún coeficiente positivo en "
+              "su columna, así que hay infinitas soluciones óptimas a lo largo de una semirrecta.")
+        return
+    entra, sale = resultado.pivote_alternativo
+    print(f"\nSOLUCIONES MÚLTIPLES: {entra} es no básica y tiene z_j - c_j = 0. Si entra (sale {sale}), Z no cambia "
+          "y se llega a otra solución óptima:")
+    _imprimir_tabla_simplex(resultado.tabla_alternativa, False, "Tabla alternativa")
+    imprimir_tabla(
+        ["Variable", "Solución X1", "Solución X2"],
+        [[x, f"{a:g}", f"{b:g}"] for x, a, b in zip(nombres, resultado.valores, resultado.solucion_alternativa)],
+    )
+    print(f"Toda combinación λ·X1 + (1 - λ)·X2 con 0 <= λ <= 1 también es óptima (Z* = {resultado.valor_objetivo:g}).")

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import math
+import re
 import sys
 from pathlib import Path
 from typing import Callable, Sequence
@@ -10,6 +12,7 @@ from typing import Callable, Sequence
 from . import consola
 from .configuracion import Configuracion, ErrorConfiguracion, cargar_configuracion, cargar_variables_entorno
 from .modelos.presupuesto import METODOS_LAGRANGE
+from .modelos.programacion_lineal import ProblemaLineal, Restriccion, validar_problema
 
 VELOCIDADES = [0.5, 1, 2, 4, 8, 16, 32]
 ALGORITMOS_CLI = ["etapas", "bellman-ford"]
@@ -43,6 +46,41 @@ def _lista_numeros(minimo: float, maximo: float) -> Callable[[str], list[float]]
         if fuera:
             raise argparse.ArgumentTypeError(f"valores fuera de [{minimo}, {maximo}]: {fuera}")
         return valores
+
+    return validar
+
+
+def leer_coeficientes(texto: str) -> list[float]:
+    """'3,5,-2' → [3.0, 5.0, -2.0]. Los decimales se escriben con punto (la coma separa)."""
+    try:
+        valores = [float(v) for v in texto.split(",")]
+    except ValueError:
+        raise ValueError(f"'{texto}' debe ser una lista de números separados por comas (decimales con punto)")
+    if not all(math.isfinite(v) for v in valores):
+        raise ValueError(f"'{texto}' contiene valores no finitos")
+    return valores
+
+
+def leer_restriccion(texto: str) -> Restriccion:
+    """'1,2<=4' → 1·x1 + 2·x2 <= 4. Acepta <=, >=, = y también ≤ y ≥."""
+    normalizado = texto.replace("≤", "<=").replace("≥", ">=").replace("=<", "<=").replace("=>", ">=")
+    partes = re.fullmatch(r"\s*(.+?)\s*(<=|>=|=)\s*(.+?)\s*", normalizado)
+    if partes is None:
+        raise ValueError(f"'{texto}' debe tener la forma coef1,coef2,...<=b (o >=, =), ej. 1,2<=4")
+    izquierda, sentido, derecha = partes.groups()
+    coeficientes = leer_coeficientes(izquierda)
+    lado_derecho = leer_coeficientes(derecha)
+    if len(lado_derecho) != 1:
+        raise ValueError(f"'{texto}': el lado derecho debe ser un solo número")
+    return Restriccion(tuple(coeficientes), sentido, lado_derecho[0])
+
+
+def _tipo_argparse(lector: Callable[[str], object]) -> Callable[[str], object]:
+    def validar(texto: str):
+        try:
+            return lector(texto)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(str(error))
 
     return validar
 
@@ -107,6 +145,19 @@ def _validar_cantidad(config: Configuracion, valores: list[float], nombre: str) 
         raise ErrorConfiguracion(f"Se esperaban {len(config.clusters)} {nombre} (uno por clúster) y se recibieron {len(valores)}.")
 
 
+def _problema_lineal(args: argparse.Namespace) -> ProblemaLineal:
+    if args.ejemplo:
+        raise ErrorConfiguracion("Use --ejemplo o --objetivo, no ambos.")
+    if not args.restriccion:
+        raise ErrorConfiguracion("Agregue al menos una --restriccion, ej. --restriccion 1,2<=4")
+    problema = ProblemaLineal(tuple(args.objetivo), tuple(args.restriccion), "min" if args.minimizar else "max")
+    try:
+        validar_problema(problema)
+    except ValueError as error:
+        raise ErrorConfiguracion(str(error))
+    return problema
+
+
 # ====================================================================== #
 # Línea de comandos
 # ====================================================================== #
@@ -150,6 +201,15 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--presupuesto", type=_numero_en_rango(float, 1, 100_000), help="energía total disponible (kW)")
     p.add_argument("--coeficientes", type=_lista_numeros(0, 100), help="coeficientes a_i por clúster")
     p.add_argument("--metodo", choices=METODOS_LAGRANGE, help="analitico (fórmula), simbolico (sp.solve) o numerico (SciPy)")
+
+    p = sub.add_parser("lineal", help="programación lineal con el método Simplex (tablas de cada iteración)")
+    p.add_argument("--ejemplo", choices=consola.EJEMPLOS_LINEAL, help="problema de ejemplo (por defecto centro-datos)")
+    p.add_argument("--objetivo", type=_tipo_argparse(leer_coeficientes), metavar="C1,C2,...",
+                   help="coeficientes de la función objetivo, ej. 3,5 (si empieza con '-', use --objetivo=-3,5)")
+    p.add_argument("--restriccion", action="append", default=[], type=_tipo_argparse(leer_restriccion),
+                   metavar="A1,A2,...<=B",
+                   help='restricción entre comillas (repetible), ej. "1,0<=4" "3,2>=18" "1,1=5"')
+    p.add_argument("--minimizar", action="store_true", help="minimiza Z (por defecto se maximiza)")
     return parser
 
 
@@ -189,6 +249,13 @@ def ejecutar_comando(config: Configuracion, args: argparse.Namespace) -> int:
         consola.demo_lagrange(
             config, args.presupuesto or config.energia.presupuesto_total, coeficientes, args.metodo or config.energia.metodo
         )
+    elif args.comando == "lineal":
+        if args.objetivo is None:
+            if args.restriccion or args.minimizar:
+                raise ErrorConfiguracion("--restriccion y --minimizar requieren --objetivo.")
+            consola.demo_lineal_ejemplo(args.ejemplo or "centro-datos", config)
+        else:
+            consola.demo_lineal(_problema_lineal(args))
     return 0
 
 
@@ -265,6 +332,33 @@ def pedir_si_no(mensaje: str, defecto: bool = True) -> bool:
         print("  ✗ Responda 's' o 'n'.")
 
 
+def pedir_problema_lineal() -> ProblemaLineal:
+    """Pide el objetivo y las restricciones de un problema lineal, repitiendo cada dato hasta que sea válido."""
+    sentido = pedir_opcion("Objetivo", ["max", "min"], "max")
+    while True:
+        try:
+            objetivo = leer_coeficientes(input("Coeficientes de Z separados por coma (ej. 3,5): ").strip())
+            break
+        except ValueError as error:
+            print(f"  ✗ {error}.")
+    n = len(objetivo)
+    cantidad = pedir_numero("Cantidad de restricciones", 1, 20, 2, entero=True)
+    ejemplo = ",".join(["1"] * n) + "<=10"
+    restricciones = []
+    for i in range(1, cantidad + 1):
+        while True:
+            try:
+                restriccion = leer_restriccion(input(f"Restricción {i} (ej. {ejemplo}; también >= o =): ").strip())
+            except ValueError as error:
+                print(f"  ✗ {error}.")
+                continue
+            if len(restriccion.coeficientes) == n:
+                restricciones.append(restriccion)
+                break
+            print(f"  ✗ Se esperaban {n} coeficientes (uno por variable) y se recibieron {len(restriccion.coeficientes)}.")
+    return ProblemaLineal(tuple(objetivo), tuple(restricciones), sentido)
+
+
 OPCIONES = """
  1. Ejecutar simulación con dashboard (Pygame)
  2. Ejecutar simulación sin interfaz y generar reporte PDF
@@ -275,6 +369,7 @@ OPCIONES = """
  7. Módulo 2 · Lagrange (presupuesto eléctrico)
  8. Cargar otro archivo de configuración
  9. Ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco)
+10. Programación lineal (método Simplex)
  0. Salir"""
 
 
@@ -335,8 +430,14 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
             elif opcion == "9":
                 consola.demo_ruta_clase()
                 consola.demo_mochila_clase()
+            elif opcion == "10":
+                nombre = pedir_opcion("Problema", [*consola.EJEMPLOS_LINEAL, "propio"], "centro-datos")
+                if nombre == "propio":
+                    consola.demo_lineal(pedir_problema_lineal())
+                else:
+                    consola.demo_lineal_ejemplo(nombre, config)
             else:
-                print("  ✗ Opción inválida: ingrese un número del 0 al 9.")
+                print("  ✗ Opción inválida: ingrese un número del 0 al 10.")
                 continue
         except ErrorConfiguracion as error:
             print(f"  ✗ {error}")
