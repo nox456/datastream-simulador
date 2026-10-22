@@ -76,3 +76,38 @@ def test_los_clics_funcionan_con_la_ventana_escalada(dashboard):
     dashboard.ventana = pygame.display.set_mode((ANCHO // 2, ALTO // 2))
     _clic(dashboard, _boton(dashboard, "Pausa").rect.center)
     assert dashboard.pausado
+
+
+def test_botones_de_presupuesto_en_el_panel_de_lagrange(dashboard):
+    nominal = dashboard.sim.config.energia.presupuesto_total
+    _clic(dashboard, dashboard.barra_energia.botones[1].rect.center)
+    assert dashboard.sim.presupuesto == pytest.approx(1.1 * nominal)
+    _clic(dashboard, dashboard.barra_energia.botones[0].rect.center)
+    _clic(dashboard, dashboard.barra_energia.botones[0].rect.center)
+    assert dashboard.sim.presupuesto == pytest.approx(0.9 * nominal)
+    assert dashboard.rect_lagrange.contains(dashboard.barra_energia.area)
+
+
+def test_botones_de_umbral_en_el_panel_termico(dashboard):
+    umbral = dashboard.sim.modelo_termico.temperatura_emergencia
+    _clic(dashboard, dashboard.barra_termica.botones[0].rect.center)
+    assert dashboard.sim.modelo_termico.temperatura_emergencia == pytest.approx(umbral - 5)
+    assert "punto crítico" in dashboard._mensaje[0]
+    assert dashboard.rect_termico.contains(dashboard.barra_termica.area)
+
+
+def test_teclas_de_presupuesto_y_umbral(dashboard):
+    nominal = dashboard.sim.config.energia.presupuesto_total
+    umbral = dashboard.sim.modelo_termico.temperatura_emergencia
+    for tecla in (pygame.K_e, pygame.K_e, pygame.K_t):
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=tecla, unicode=""))
+    dashboard._procesar_eventos()
+    assert dashboard.sim.presupuesto == pytest.approx(1.2 * nominal)
+    assert dashboard.sim.modelo_termico.temperatura_emergencia == pytest.approx(umbral + 5)
+
+
+def test_limite_del_presupuesto_se_informa_sin_romper(dashboard):
+    for _ in range(25):
+        dashboard._cambiar_presupuesto(+1)
+    assert dashboard.sim.presupuesto == pytest.approx(3 * dashboard.sim.config.energia.presupuesto_total)
+    assert "debe estar entre" in dashboard._mensaje[0]

@@ -312,3 +312,49 @@ def test_simulacion_con_lagrange_numerico_respeta_el_presupuesto():
         assert sum(muestra.energias_cluster) == pytest.approx(sim.config.energia.presupuesto_total)
     esperado = AsignadorEnergia(sim.config.energia.presupuesto_total).asignar(sim.ultimos_coeficientes)
     assert sim.ultimo_lagrange.energias == pytest.approx(esperado.energias, rel=1e-4, abs=1e-6)
+
+
+def test_ajuste_del_presupuesto_en_vivo():
+    sim = SimuladorCentroDatos(cargar_configuracion().con_cambios(duracion=60))
+    sim.avanzar(20)
+    lambda_antes = sim.ultimo_lagrange.multiplicador
+    velocidad_antes = sum(c.factor_velocidad for c in sim.clusters)
+    assert sim.ajustar_presupuesto(60) == pytest.approx(180)
+    assert sum(sim.ultimo_lagrange.energias) == pytest.approx(180)
+    assert sim.ultimo_lagrange.multiplicador < lambda_antes
+    assert sum(c.factor_velocidad for c in sim.clusters) > velocidad_antes
+    assert construir_resumen(sim)["parametros"]["presupuesto_electrico"] == pytest.approx(180)
+    sim.avanzar(5)
+    assert sum(sim.metricas.muestras[-1].energias_cluster) == pytest.approx(180)
+    with pytest.raises(ValueError):
+        sim.ajustar_presupuesto(1000)
+    with pytest.raises(ValueError):
+        sim.ajustar_presupuesto(-170)
+
+
+def test_ajuste_del_presupuesto_conserva_el_metodo_de_lagrange():
+    sim = SimuladorCentroDatos(cargar_configuracion().con_metodo_lagrange("numerico"))
+    sim.ajustar_presupuesto(12)
+    assert sim.ultimo_lagrange.metodo == "numerico"
+
+
+def test_ajuste_del_umbral_de_emergencia_en_vivo():
+    sim = SimuladorCentroDatos(cargar_configuracion().con_cambios(duracion=60))
+    critico = sim.analisis_termico.carga_emergencia
+    assert sim.ajustar_temperatura_emergencia(-15) == pytest.approx(60)
+    assert sim.analisis_termico.carga_emergencia < critico
+    assert sim.modelo_termico.temperatura(sim.analisis_termico.carga_emergencia) == pytest.approx(60, abs=1e-6)
+    assert construir_resumen(sim)["termico"]["temperatura_emergencia"] == pytest.approx(60)
+    sim.ajustar_temperatura_emergencia(+60)
+    assert sim.analisis_termico.carga_emergencia is None
+    with pytest.raises(ValueError):
+        sim.ajustar_temperatura_emergencia(+100)
+    with pytest.raises(ValueError):
+        sim.ajustar_temperatura_emergencia(-100)
+
+
+def test_umbral_bajo_activa_emergencias_en_la_simulacion():
+    sim = SimuladorCentroDatos(cargar_configuracion().con_cambios(duracion=300))
+    sim.ajustar_temperatura_emergencia(-35)
+    sim.ejecutar()
+    assert any(e.tipo == "emergencia" for e in sim.metricas.eventos)

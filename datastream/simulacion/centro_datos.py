@@ -39,6 +39,8 @@ TASA_MINIMA, TASA_MAXIMA = 0.5, 20.0  # límites para el ajuste en vivo de λ
 UMBRAL_CAMBIO_RUTA = 0.08  # la nueva ruta debe ser 8 % más rápida para reemplazar a la actual
 HISTERESIS_TERMICA = 5.0  # °C bajo el umbral para salir de la emergencia (evita oscilar)
 MAX_ARTICULOS_ILUSTRATIVOS = 15  # tamaño máximo de la mochila que se muestra en el reporte
+PRESUPUESTO_MIN_RELATIVO, PRESUPUESTO_MAX_RELATIVO = 0.2, 3.0
+TEMPERATURA_EMERGENCIA_MAX = 150.0
 
 
 @dataclass(frozen=True)
@@ -485,21 +487,58 @@ class SimuladorCentroDatos:
         for cluster, nivel in zip(self.clusters, self.ultimo_gradiente.niveles):
             cluster.nivel_ventilador = nivel
 
-        # Lagrange: reparto del presupuesto eléctrico entre clústeres.
-        # a_i = eficiencia · (capacidad activa / capacidad total) · (carga base + carga actual)
+        self._repartir_energia()
+        self._tomar_muestra()
+
+    def _repartir_energia(self) -> None:
+        """Lagrange: reparto del presupuesto eléctrico entre clústeres.
+
+        a_i = eficiencia · (capacidad activa / capacidad total) · (carga base + carga actual)
+        La velocidad de proceso se compara con el reparto proporcional del presupuesto nominal
+        (el de la configuración), así que subir el presupuesto en vivo acelera el proceso.
+        """
         carga_base = self.config.energia.carga_base
         self.ultimos_coeficientes = tuple(
             c.eficiencia * (c.capacidad_activa / self.capacidad_total) * (carga_base + c.carga) for c in self.clusters
         )
         self.ultimo_lagrange = self.asignador.asignar(self.ultimos_coeficientes)
-        presupuesto = self.config.energia.presupuesto_total
+        nominal = self.config.energia.presupuesto_total
         for cluster, energia in zip(self.clusters, self.ultimo_lagrange.energias):
-            referencia = presupuesto * cluster.capacidad_total / self.capacidad_total  # reparto proporcional
+            referencia = nominal * cluster.capacidad_total / self.capacidad_total
             cluster.energia_asignada = energia
-            # Rendimiento ∝ √E: con más energía (frecuencia de CPU) se procesa más rápido.
             cluster.factor_velocidad = min(max(math.sqrt(energia / referencia), 0.5), 1.5)
 
-        self._tomar_muestra()
+    @property
+    def presupuesto(self) -> float:
+        """Presupuesto eléctrico vigente (puede cambiarse durante la simulación)."""
+        return self.asignador.presupuesto
+
+    def ajustar_presupuesto(self, delta: float) -> float:
+        nominal = self.config.energia.presupuesto_total
+        minimo, maximo = PRESUPUESTO_MIN_RELATIVO * nominal, PRESUPUESTO_MAX_RELATIVO * nominal
+        nuevo = round(self.presupuesto + delta, 1)
+        if not minimo - 1e-9 <= nuevo <= maximo + 1e-9:
+            raise ValueError(f"El presupuesto eléctrico debe estar entre {minimo:.0f} y {maximo:.0f} kW.")
+        self.asignador = AsignadorEnergia(nuevo, self.asignador.metodo)
+        self._repartir_energia()
+        self._registrar("info", f"Presupuesto eléctrico ajustado a {nuevo:.1f} kW (λ* = {self.ultimo_lagrange.multiplicador:.4f})")
+        return nuevo
+
+    def ajustar_temperatura_emergencia(self, delta: float) -> float:
+        actual = self.modelo_termico.temperatura_emergencia
+        minimo = self.modelo_termico.temperatura(self.modelo_termico.dominio[0]) + 2 * HISTERESIS_TERMICA
+        nuevo = round(actual + delta, 1)
+        if not minimo <= nuevo <= TEMPERATURA_EMERGENCIA_MAX:
+            raise ValueError(
+                f"La temperatura de emergencia debe estar entre {minimo:.0f} y {TEMPERATURA_EMERGENCIA_MAX:.0f} °C."
+            )
+        t = self.config.termico
+        self.modelo_termico = ModeloTermico(t.funcion, (t.carga_min, t.carga_max), nuevo)
+        self.analisis_termico = self.modelo_termico.analizar()
+        critico = self.analisis_termico.carga_emergencia
+        detalle = f"punto crítico x_e = {critico:.1f} %" if critico is not None else "T(x) nunca lo alcanza"
+        self._registrar("info", f"Umbral de emergencia ajustado a {nuevo:.0f} °C ({detalle})")
+        return nuevo
 
     def _actualizar_temperaturas(self) -> None:
         """Temperatura de cada servidor con inercia térmica (sistema de primer orden).
@@ -515,7 +554,7 @@ class SimuladorCentroDatos:
                 carga = servidor.carga_porcentaje if servidor.activo else 0.0
                 objetivo = self.modelo_termico.temperatura(carga)
                 servidor.temperatura += (objetivo - servidor.temperatura) * alfa
-                umbral = termico.temperatura_emergencia
+                umbral = self.modelo_termico.temperatura_emergencia
                 if servidor.en_emergencia:  # histéresis: sale al bajar 5 °C del umbral
                     umbral -= HISTERESIS_TERMICA
                 servidor.en_emergencia = servidor.activo and servidor.temperatura >= umbral
@@ -525,7 +564,7 @@ class SimuladorCentroDatos:
             if calientes and not cluster.en_emergencia:
                 self._registrar(
                     "emergencia",
-                    f"{cluster.nombre}: {', '.join(calientes)} ≥ {termico.temperatura_emergencia:.0f} °C, "
+                    f"{cluster.nombre}: {', '.join(calientes)} ≥ {self.modelo_termico.temperatura_emergencia:.0f} °C, "
                     "enfriamiento de emergencia",
                 )
             elif cluster.en_emergencia and not calientes:

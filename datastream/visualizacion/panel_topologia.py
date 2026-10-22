@@ -198,7 +198,7 @@ class PanelTopologia:
     def _dibujar_servidor(self, superficie, servidor: Servidor, x: int, y: int, parpadeo: bool) -> None:
         caja = pygame.Rect(0, 0, ANCHO_SERVIDOR, ALTO_SERVIDOR)
         caja.midtop = (x, y - 10)
-        emergencia = self.sim.config.termico.temperatura_emergencia
+        emergencia = self.sim.modelo_termico.temperatura_emergencia
         if not servidor.activo:
             pygame.draw.rect(superficie, INACTIVO, caja, border_radius=6)
             pygame.draw.rect(superficie, ROJO, caja, 2, border_radius=6)

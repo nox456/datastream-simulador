@@ -89,7 +89,7 @@ def construir_resumen(sim: SimuladorCentroDatos) -> dict:
             "tasa_llegada_base": sim.tasa_llegada,
             "amplitud_pico": cfg.simulacion.amplitud_pico,
             "periodo_pico": cfg.simulacion.periodo_pico,
-            "presupuesto_electrico": cfg.energia.presupuesto_total,
+            "presupuesto_electrico": sim.presupuesto,
             "capacidad_total": sim.capacidad_total,
             "servidores": len(sim.servidores),
             "clusters": nombres,

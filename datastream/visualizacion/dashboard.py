@@ -10,6 +10,7 @@ import os
 import threading
 import time
 from datetime import datetime
+from typing import Callable
 from pathlib import Path
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -27,6 +28,8 @@ ANCHO, ALTO = 1440, 900  # resolución lógica; la ventana se escala a la pantal
 VELOCIDADES = [0.5, 1, 2, 4, 8, 16, 32]
 VENTANA_GRAFICOS = 120.0  # segundos simulados visibles en los gráficos temporales
 PASO_TASA = 0.5
+PASO_PRESUPUESTO = 0.1
+PASO_UMBRAL = 5.0
 
 
 class Dashboard:
@@ -51,6 +54,15 @@ class Dashboard:
         self.rect_lagrange = pygame.Rect(890, 346, 538, 270)
         self.rect_termico = pygame.Rect(890, 624, 538, 268)
         self.barra = self._crear_botones()
+        self.barra_energia = self._crear_botones_de_panel(
+            self.rect_lagrange,
+            [("kW − [D]", lambda: self._cambiar_presupuesto(-1)), ("kW + [E]", lambda: self._cambiar_presupuesto(+1))],
+        )
+        self.barra_termica = self._crear_botones_de_panel(
+            self.rect_termico,
+            [("°C − [G]", lambda: self._cambiar_umbral(-PASO_UMBRAL)), ("°C + [T]", lambda: self._cambiar_umbral(PASO_UMBRAL))],
+        )
+        self.barras = [self.barra, self.barra_energia, self.barra_termica]
         self._mouse: tuple[float, float] | None = None  # posición del mouse en coordenadas del lienzo
 
     def _crear_botones(self) -> BarraBotones:
@@ -65,6 +77,14 @@ class Dashboard:
         barra.agregar("Falla [F]", self._inyectar_falla)
         barra.agregar("Reporte PDF [R]", self._iniciar_reporte)
         barra.agregar("Salir [Esc]", self._salir)
+        barra.distribuir(self.fuentes)
+        return barra
+
+    def _crear_botones_de_panel(self, panel: pygame.Rect, botones: list[tuple[str, Callable[[], None]]]) -> BarraBotones:
+        """Par de botones en la esquina superior derecha de un panel, junto a su título."""
+        barra = BarraBotones(pygame.Rect(panel.right - 170, panel.y + 6, 160, 22))
+        for etiqueta, accion in botones:
+            barra.agregar(etiqueta, accion)
         barra.distribuir(self.fuentes)
         return barra
 
@@ -131,7 +151,7 @@ class Dashboard:
         return posicion[0] * ANCHO / ancho, posicion[1] * ALTO / alto
 
     def _procesar_clic(self, punto: tuple[float, float]) -> None:
-        boton = self.barra.boton_en(punto)
+        boton = next((b for barra in self.barras if (b := barra.boton_en(punto)) is not None), None)
         if boton is not None:
             boton.pulsar()
             return
@@ -157,6 +177,10 @@ class Dashboard:
             self._inyectar_falla()
         elif tecla == pygame.K_r:
             self._iniciar_reporte()
+        elif tecla in (pygame.K_e, pygame.K_d):
+            self._cambiar_presupuesto(+1 if tecla == pygame.K_e else -1)
+        elif tecla in (pygame.K_t, pygame.K_g):
+            self._cambiar_umbral(PASO_UMBRAL if tecla == pygame.K_t else -PASO_UMBRAL)
         elif evento.unicode and evento.unicode.isprintable():
             self.notificar(f"Comando '{evento.unicode}' no reconocido · use los botones o las teclas indicadas")
 
@@ -189,6 +213,23 @@ class Dashboard:
         try:
             nueva = self.sim.ajustar_tasa_llegada(delta)
             self.notificar(f"Tasa de llegada base: {nueva:.1f} tareas/s")
+        except ValueError as error:
+            self.notificar(str(error))
+
+    def _cambiar_presupuesto(self, signo: int) -> None:
+        """Sube o baja el presupuesto eléctrico un 10 % del nominal; Lagrange reparte de inmediato."""
+        try:
+            nuevo = self.sim.ajustar_presupuesto(signo * PASO_PRESUPUESTO * self.sim.config.energia.presupuesto_total)
+            self.notificar(f"Presupuesto eléctrico: {nuevo:.1f} kW · λ* = {self.sim.ultimo_lagrange.multiplicador:.4f}")
+        except ValueError as error:
+            self.notificar(str(error))
+
+    def _cambiar_umbral(self, delta: float) -> None:
+        try:
+            nuevo = self.sim.ajustar_temperatura_emergencia(delta)
+            critico = self.sim.analisis_termico.carga_emergencia
+            detalle = f"punto crítico x_e = {critico:.1f} %" if critico is not None else "T(x) nunca lo alcanza"
+            self.notificar(f"Emergencia térmica a partir de {nuevo:.0f} °C · {detalle}")
         except ValueError as error:
             self.notificar(str(error))
 
@@ -364,6 +405,7 @@ class Dashboard:
 
     def _dibujar_lagrange(self) -> None:
         area = tema.dibujar_panel(self.lienzo, self.fuentes, self.rect_lagrange, "Multiplicadores de Lagrange · presupuesto eléctrico")
+        self.barra_energia.dibujar(self.lienzo, self.fuentes, self._mouse)
         resultado = self.sim.ultimo_lagrange
         self.fuentes.texto(
             self.lienzo,
@@ -393,6 +435,7 @@ class Dashboard:
 
     def _dibujar_termico(self) -> None:
         area = tema.dibujar_panel(self.lienzo, self.fuentes, self.rect_termico, "Modelo térmico T(x) · puntos estacionarios")
+        self.barra_termica.dibujar(self.lienzo, self.fuentes, self._mouse)
         modelo, analisis = self.sim.modelo_termico, self.sim.analisis_termico
         x_min, x_max = modelo.dominio
         muestras = [x_min + (x_max - x_min) * i / 120 for i in range(121)]

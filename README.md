@@ -77,6 +77,8 @@ equivalente, y un clic sobre el recuadro de un clúster resalta su ruta.
 | `+` / `-` | `Velocidad +` / `Velocidad −` | Velocidad de la simulación (×0.5 a ×32) |
 | `↑` / `↓` | `Tasa +` / `Tasa −` | Aumentar / disminuir la tasa de llegada de tareas (0.5 a 20 tareas/s) |
 | `1` … `4` | Clic en el recuadro del clúster | Resaltar la ruta óptima hacia ese clúster |
+| `E` / `D` | `kW +` / `kW −` (panel de Lagrange) | Subir / bajar el presupuesto eléctrico un 10 % del nominal (entre 20 % y 300 %): Lagrange reparte de inmediato y cambia `λ*` |
+| `T` / `G` | `°C +` / `°C −` (panel térmico) | Subir / bajar 5 °C el umbral de emergencia: se recalcula el punto crítico `x_e` de `T(x)` |
 | `F` | `Falla` | Inyectar una falla en un router al azar (para ver el reenrutamiento) |
 | `R` | `Reporte PDF` | Generar el reporte PDF con análisis de IA (incluye una captura del dashboard) |
 | `Esc` | `Salir` | Salir |
@@ -287,8 +289,9 @@ datos por defecto.
   con enlaces laterales.
 - **Menú interactivo:** vuelve a pedir el dato hasta que sea válido, y Enter acepta el valor por defecto. Un error
   inesperado se informa sin cerrar el menú.
-- **Dashboard:** límites de velocidad y de tasa de llegada, clúster inexistente, teclas no reconocidas y reportes
-  simultáneos.
+- **Dashboard:** límites de velocidad, de tasa de llegada, de presupuesto eléctrico (20 % a 300 % del nominal) y del
+  umbral de emergencia (por encima de la temperatura en reposo y hasta 150 °C), clúster inexistente, teclas no
+  reconocidas y reportes simultáneos.
 
 ## Pruebas
 
@@ -296,12 +299,12 @@ datos por defecto.
 python -m pytest
 ```
 
-163 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
+171 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
 recursión hacia adelante comparada con la recursión hacia atrás y con Bellman-Ford (incluidos ciclos y latencias
 negativas), la mochila comparada con fuerza bruta, los puntos estacionarios analíticos, el gradiente comparado con
 diferencias finitas y con el óptimo analítico, las condiciones de Lagrange, los tres métodos de Lagrange comparados
 entre sí (y que `sp.solve` deduce la fórmula analítica), el Hessiano orlado y el precio sombra, las
 fórmulas M/M/1, la pérdida de paquetes cuando un nodo cae durante el viaje, la validación de la configuración y de los
-comandos, el menú interactivo, los botones del dashboard, la respuesta ante errores de la API de IA y varias invariantes
+comandos, el menú interactivo, los botones del dashboard y los ajustes en vivo del presupuesto y del umbral térmico, la respuesta ante errores de la API de IA y varias invariantes
 de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y reproducibilidad con la misma
 semilla).
