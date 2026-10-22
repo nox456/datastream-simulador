@@ -145,6 +145,12 @@ def _validar_cantidad(config: Configuracion, valores: list[float], nombre: str) 
         raise ErrorConfiguracion(f"Se esperaban {len(config.clusters)} {nombre} (uno por clúster) y se recibieron {len(valores)}.")
 
 
+def abrir_ventana_lineal(config: Configuracion, inicial: str, propio: ProblemaLineal | None = None) -> None:
+    from .visualizacion.ventana_lineal import VentanaLineal
+
+    VentanaLineal(consola.problemas_lineales(config, propio), inicial).ejecutar()
+
+
 def _problema_lineal(args: argparse.Namespace) -> ProblemaLineal:
     if args.ejemplo:
         raise ErrorConfiguracion("Use --ejemplo o --objetivo, no ambos.")
@@ -210,6 +216,7 @@ def construir_parser() -> argparse.ArgumentParser:
                    metavar="A1,A2,...<=B",
                    help='restricción entre comillas (repetible), ej. "1,0<=4" "3,2>=18" "1,1=5"')
     p.add_argument("--minimizar", action="store_true", help="minimiza Z (por defecto se maximiza)")
+    p.add_argument("--gui", action="store_true", help="abre la interfaz gráfica (tablas paso a paso y región factible)")
     return parser
 
 
@@ -253,7 +260,12 @@ def ejecutar_comando(config: Configuracion, args: argparse.Namespace) -> int:
         if args.objetivo is None:
             if args.restriccion or args.minimizar:
                 raise ErrorConfiguracion("--restriccion y --minimizar requieren --objetivo.")
-            consola.demo_lineal_ejemplo(args.ejemplo or "centro-datos", config)
+            if args.gui:
+                abrir_ventana_lineal(config, args.ejemplo or "centro-datos")
+            else:
+                consola.demo_lineal_ejemplo(args.ejemplo or "centro-datos", config)
+        elif args.gui:
+            abrir_ventana_lineal(config, "propio", _problema_lineal(args))
         else:
             consola.demo_lineal(_problema_lineal(args))
     return 0
@@ -432,8 +444,11 @@ def menu_interactivo(config: Configuracion, ruta_config: Path | None) -> int:
                 consola.demo_mochila_clase()
             elif opcion == "10":
                 nombre = pedir_opcion("Problema", [*consola.EJEMPLOS_LINEAL, "propio"], "centro-datos")
-                if nombre == "propio":
-                    consola.demo_lineal(pedir_problema_lineal())
+                propio = pedir_problema_lineal() if nombre == "propio" else None
+                if pedir_si_no("¿Abrir la interfaz gráfica?", defecto=False):
+                    abrir_ventana_lineal(config, nombre, propio)
+                elif propio is not None:
+                    consola.demo_lineal(propio)
                 else:
                     consola.demo_lineal_ejemplo(nombre, config)
             else:

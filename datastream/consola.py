@@ -447,6 +447,14 @@ def problema_ejemplo(nombre: str, config: Configuracion) -> tuple[ProblemaLineal
     raise ValueError(f"Ejemplo desconocido '{nombre}'. Opciones: {', '.join(EJEMPLOS_LINEAL)}")
 
 
+def problemas_lineales(config: Configuracion, propio: ProblemaLineal | None = None) -> dict[str, tuple[ProblemaLineal, str]]:
+    """Todos los ejemplos (y el problema propio, si hay) para elegirlos en la interfaz gráfica."""
+    problemas = {nombre: problema_ejemplo(nombre, config) for nombre in EJEMPLOS_LINEAL}
+    if propio is not None:
+        problemas["propio"] = (propio, "Problema ingresado")
+    return problemas
+
+
 def demo_lineal_ejemplo(nombre: str, config: Configuracion) -> ResultadoSimplex:
     problema, descripcion = problema_ejemplo(nombre, config)
     datos = None
@@ -472,10 +480,10 @@ def demo_lineal(
         imprimir_tabla(*datos)
         print()
     nombres = problema.nombres
-    print(f"{problema.sentido} Z = {_expresion(problema.objetivo, nombres)}")
+    print(f"{problema.sentido} Z = {expresion_lineal(problema.objetivo, nombres)}")
     print("s.a.")
     for i, r in enumerate(problema.restricciones, start=1):
-        print(f"   ({i}) {_expresion(r.coeficientes, nombres)} {r.sentido} {r.lado_derecho:g}")
+        print(f"   ({i}) {expresion_lineal(r.coeficientes, nombres)} {r.sentido} {r.lado_derecho:g}")
     print(f"   {', '.join(nombres)} >= 0")
 
     resultado = ResolvedorSimplex().resolver(problema)
@@ -486,7 +494,7 @@ def demo_lineal(
     return resultado
 
 
-def _expresion(coeficientes: Sequence[float], nombres: Sequence[str]) -> str:
+def expresion_lineal(coeficientes: Sequence[float], nombres: Sequence[str]) -> str:
     terminos = []
     for a, x in zip(coeficientes, nombres):
         if a == 0:
@@ -497,7 +505,7 @@ def _expresion(coeficientes: Sequence[float], nombres: Sequence[str]) -> str:
     return "".join(terminos) or "0"
 
 
-def _fraccion(valor: float) -> str:
+def fraccion(valor: float) -> str:
     """Muestra el número como fracción (2/5, -7/3) cuando lo es, igual que en las tablas hechas a mano."""
     aproximada = Fraction(valor).limit_denominator(1000)
     if abs(float(aproximada) - valor) > 1e-9:
@@ -538,33 +546,33 @@ def _imprimir_tabla_simplex(tabla: TablaSimplex, dos_fases: bool, encabezado: st
         extra = []
         if con_razones:
             razon = tabla.razones[i]
-            extra = ["-" if razon is None else _fraccion(razon) + (" ←" if variable == tabla.saliente else "")]
-        filas.append([variable, *map(_fraccion, fila), *extra])
-    filas.append([tabla.etiqueta_objetivo, *map(_fraccion, tabla.fila_objetivo), *([""] if con_razones else [])])
+            extra = ["-" if razon is None else fraccion(razon) + (" ←" if variable == tabla.saliente else "")]
+        filas.append([variable, *map(fraccion, fila), *extra])
+    filas.append([tabla.etiqueta_objetivo, *map(fraccion, tabla.fila_objetivo), *([""] if con_razones else [])])
     columnas = [c + (" ↓" if c == tabla.entrante else "") for c in tabla.columnas]
     imprimir_tabla(["Base", *columnas, "Solución", *(["Razón"] if con_razones else [])], filas)
 
     if tabla.entrante is None:
         if tabla.fase == 1:
-            print(f"Fin de la fase 1: todos los z_j - c_j >= 0, W* = {_fraccion(tabla.fila_objetivo[-1])}.")
+            print(f"Fin de la fase 1: todos los z_j - c_j >= 0, W* = {fraccion(tabla.fila_objetivo[-1])}.")
         else:
             print("Todos los z_j - c_j son >= 0: la tabla es óptima.")
         return
     k = tabla.columnas.index(tabla.entrante)
-    texto = f"Entra {tabla.entrante} (z_j - c_j = {_fraccion(tabla.fila_objetivo[k])})"
+    texto = f"Entra {tabla.entrante} (z_j - c_j = {fraccion(tabla.fila_objetivo[k])})"
     if tabla.saliente is None:
         print(f"{texto}, pero ningún coeficiente de su columna es positivo: no hay razón mínima.")
         return
     r = tabla.base.index(tabla.saliente)
-    print(f"{texto} · sale {tabla.saliente} (razón mínima {_fraccion(tabla.razones[r])}) · "
-          f"pivote {_fraccion(tabla.filas[r][k])}")
+    print(f"{texto} · sale {tabla.saliente} (razón mínima {fraccion(tabla.razones[r])}) · "
+          f"pivote {fraccion(tabla.filas[r][k])}")
 
 
 def _imprimir_resultado_lineal(problema: ProblemaLineal, resultado: ResultadoSimplex) -> None:
     nombres = problema.nombres
     if resultado.estado == "infactible":
         w = resultado.tablas[-1].fila_objetivo[-1]
-        print(f"\nPROBLEMA INFACTIBLE: la fase 1 terminó con W* = {_fraccion(w)} < 0. Alguna variable artificial no "
+        print(f"\nPROBLEMA INFACTIBLE: la fase 1 terminó con W* = {fraccion(w)} < 0. Alguna variable artificial no "
               "puede valer 0, así que ningún x >= 0 cumple todas las restricciones a la vez.")
     elif resultado.estado == "no_acotado":
         limite = "+∞" if problema.sentido == "max" else "-∞"

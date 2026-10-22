@@ -159,13 +159,12 @@ def test_texto_ia_conserva_negritas_al_inicio_de_linea():
 
 
 def test_error_generico_de_la_api_usa_el_analisis_local(simulador, monkeypatch):
-    import httpx
     import openai
 
     from datastream.reportes import analista_ia
 
     def falla(self, resumen):
-        raise openai.APIError("respuesta inesperada", request=httpx.Request("POST", "https://api.deepseek.com"), body=None)
+        raise openai.APIError("respuesta inesperada", request=None, body=None)
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-prueba")
     monkeypatch.setattr(analista_ia.AnalistaDeepSeek, "analizar", falla)

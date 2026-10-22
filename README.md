@@ -68,6 +68,7 @@ Cada módulo matemático también se puede ejecutar **de forma independiente** p
 | `python main.py lagrange [--presupuesto 150] [--metodo simbolico]` | Lagrangiano, derivadas parciales, `λ*`, reparto óptimo de energía y Hessiano orlado; con `--metodo` se resuelve con `sp.solve` o con SciPy y se compara con la fórmula |
 | `python main.py lineal [--ejemplo parcial-iv]` | Programación lineal con el método Simplex: cada tabla, solución, precios sombra y casos especiales (ver [abajo](#programación-lineal--método-simplex)) |
 | `python main.py lineal --objetivo 3,5 --restriccion "1,0<=4" --restriccion "3,2<=18"` | Simplex sobre un problema propio (agregue `--minimizar` para minimizar) |
+| `python main.py lineal --gui [--ejemplo minimizar]` | Interfaz gráfica del Simplex: tablas paso a paso y región factible (también con `--objetivo`) |
 
 ### Controles del dashboard
 
@@ -111,7 +112,7 @@ datastream/
     centro_datos.py           procesos: llegadas, despacho, tránsito, proceso, fallas, control
     metricas.py               indicadores y bitácora
     resumen.py                datos planos para el reporte
-  visualizacion/            dashboard Pygame (topología, gráficos, indicadores)
+  visualizacion/            dashboard Pygame (topología, gráficos, indicadores) y ventana del Simplex
   reportes/                 análisis con IA (DeepSeek), gráficas matplotlib y PDF (reportlab)
   configuracion.py          carga y validación del JSON
   consola.py / cli.py       demos por consola, subcomandos y menú interactivo
@@ -304,6 +305,31 @@ Las restricciones se escriben `coef1,coef2,...<=b` (o `>=`, `=`), con punto deci
 terminal, porque `<` y `>` son redirecciones. Si un valor empieza con `-`, use `--objetivo=-3,5` o
 `--restriccion="-1,2<=4"`.
 
+### Interfaz gráfica del Simplex
+
+`python main.py lineal --gui` (o responder `s` a "¿Abrir la interfaz gráfica?" en la opción 10 del menú) abre una
+ventana Pygame (`visualizacion/ventana_lineal.py`) con el mismo estilo del dashboard:
+
+![Simplex](docs/simplex.png)
+
+- **Tabla del Simplex paso a paso:** la columna de la variable que entra (azul), la fila de la que sale (naranja) y el
+  pivote (recuadro amarillo), con la explicación del paso y la solución básica de esa tabla.
+- **Región factible** (problemas de 2 variables): cada restricción con su color, la región sombreada (un segmento si hay
+  una restricción `=`), la recta de `Z` de la tabla actual, el recorrido del Simplex de vértice en vértice (amarillo en
+  la fase 1), el segmento de soluciones óptimas cuando son múltiples y una flecha cuando la solución es no acotada.
+- **Más de 2 variables:** barras con la solución básica de la tabla actual y el uso de cada restricción (en rojo si
+  no se cumple, como en la fase 1).
+- **Problema y resultado:** la formulación y la forma estándar, el estado final, `Z*`, los precios sombra y la
+  verificación con SciPy. Abajo a la derecha, el valor de `Z` en cada tabla de la fase 2.
+
+| Tecla | Botón | Acción |
+|---|---|---|
+| `Der` / `Espacio` | Siguiente > | Tabla siguiente |
+| `Izq` | < Anterior | Tabla anterior |
+| `Inicio` / `Fin` | Inicio / Final | Primera o última tabla |
+| `1` … `6` | Nombre del ejemplo | Cambiar de problema (el 6 es el problema propio, si se ingresó) |
+| `Esc` | Salir | Cerrar la ventana |
+
 ## Datos de configuración
 
 `datos/configuracion_default.json` contiene los datos de prueba por defecto. Puede copiarlo, modificarlo y cargarlo con
@@ -344,13 +370,13 @@ terminal, porque `<` y `>` son redirecciones. Si un valor empieza con `-`, use `
 python -m pytest
 ```
 
-214 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
+232 pruebas, entre ellas: los ejemplos resueltos en clase (ruta de 7 ciudades y mochila del barco, tabla por tabla), la
 recursión hacia adelante comparada con la recursión hacia atrás y con Bellman-Ford (incluidos ciclos y latencias
 negativas), la mochila comparada con fuerza bruta, los puntos estacionarios analíticos, el gradiente comparado con
 diferencias finitas y con el óptimo analítico, las condiciones de Lagrange, los tres métodos de Lagrange comparados
 entre sí (y que `sp.solve` deduce la fórmula analítica), el Hessiano orlado y el precio sombra, las
 fórmulas M/M/1, el Simplex (tabla por tabla, casos especiales, ciclaje de Beale, 300 problemas aleatorios comparados con
-SciPy y los precios sombra comparados con la derivada numérica), la pérdida de paquetes cuando un nodo cae durante el viaje, la validación de la configuración y de los
+SciPy, los precios sombra comparados con la derivada numérica y la interfaz gráfica: región factible, navegación y botones), la pérdida de paquetes cuando un nodo cae durante el viaje, la validación de la configuración y de los
 comandos, el menú interactivo, los botones del dashboard y los ajustes en vivo del presupuesto y del umbral térmico, la respuesta ante errores de la API de IA y varias invariantes
 de la simulación (conservación de tareas, capacidad nunca excedida, presupuesto respetado y reproducibilidad con la misma
 semilla).

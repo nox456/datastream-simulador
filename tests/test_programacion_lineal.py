@@ -254,7 +254,7 @@ def test_comando_lineal_con_datos_invalidos(argumentos, capsys):
 
 
 def test_menu_resuelve_un_problema_propio_y_repite_los_datos_invalidos(monkeypatch, capsys):
-    respuestas = iter(["10", "propio", "min", "2,x", "2,3", "2", "1,1>4", "1,1,1>=4", "1,1>=4", "1,3>=6", "", "0"])
+    respuestas = iter(["10", "propio", "min", "2,x", "2,3", "2", "1,1>4", "1,1,1>=4", "1,1>=4", "1,3>=6", "n", "", "0"])
     monkeypatch.setattr("builtins.input", lambda _mensaje="": next(respuestas))
     assert cli.menu_interactivo(cargar_configuracion(), None) == 0
     salida = capsys.readouterr().out
